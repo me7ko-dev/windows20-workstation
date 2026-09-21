@@ -127,6 +127,25 @@ export function createNodeWindow({ node, canvas, plane, onChange, onClose, onFoc
     el,
     body: bodyEl,
     raise,
+    /** Re-read x/y/width/height from the model — used after a tidy. */
+    place,
+    /**
+     * Glide to a new position instead of teleporting. Only for moves the user
+     * did not make by hand: a dragged window writes its transform every frame,
+     * and a transition on that would lag behind the cursor.
+     */
+    settle: (ms = 320) => {
+      el.classList.add('is-settling')
+      setTimeout(() => el.classList.remove('is-settling'), ms)
+    },
+    /**
+     * Move the element onto another workspace's plane without rebuilding it.
+     * A terminal is a live process — it can be killed, never recreated — so a
+     * window carrying one has to travel as it is.
+     */
+    reparent: (layer) => {
+      if (layer && el.parentElement !== layer) layer.appendChild(el)
+    },
     focusInView: () => canvas.focus({ x: node.x, y: node.y, width: node.width, height: node.height }, { fit: true }),
     setTitle: (text) => {
       node.title = text

@@ -5,7 +5,15 @@
  * at 60fps would stutter badly if every window were re-laid-out per frame.
  */
 
-const MIN_ZOOM = 0.2
+/**
+ * The floor is deliberately low. A workspace spread over a few thousand pixels
+ * has to be able to fit on screen in one move, and at 0.2 "fit everything"
+ * failed as soon as the work was wider than five screens — which is nothing at
+ * all on an infinite canvas; three hundred windows reach fifty. Nothing inside
+ * a window is drawn below DETAIL_ZOOM anyway, so the widest view is also the
+ * cheapest one: a map of coloured frames.
+ */
+const MIN_ZOOM = 0.02
 const MAX_ZOOM = 2.5
 
 /** Below this, window contents are unreadable — so they stop being drawn. */

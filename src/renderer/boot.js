@@ -2,6 +2,7 @@ import { createCanvas } from './canvas.js'
 import { createDesktop } from './workspaces.js'
 import { createCommandBar } from './command-bar.js'
 import { createToasts } from './toast.js'
+import { createMinimap } from './minimap.js'
 
 const WELCOME = `Добре дошъл в работната станция.
 
@@ -13,6 +14,10 @@ const WELCOME = `Добре дошъл в работната станция.
 • Ctrl+\` — обръща към следващата станция
 • Ctrl+1…9 и Ctrl+Tab — между пространствата
 • Ctrl+Shift+B — друг фон на случаен принцип
+• Ctrl+M — картата на платното долу вдясно
+• Ctrl+Shift+0 — побери всичко в екрана
+• Ctrl+Shift+G — подреди прозорците
+• Ctrl+W — затвори избрания прозорец
 • Ctrl+Shift+Space — говори
 • Ctrl + колелце — мащаб, влачене по фона — местене
 
@@ -46,7 +51,8 @@ async function boot() {
   desktop.load(saved)
   const firstRun = !saved
 
-  const bar = createCommandBar({ root, desktop, programs: info.programs, canvas, toast })
+  const minimap = createMinimap({ root, desktop, canvas, viewport })
+  const bar = createCommandBar({ root, desktop, programs: info.programs, canvas, toast, minimap })
   buildDock(root, info.programs, desktop)
 
   if (!info.ptyAvailable) {
@@ -74,6 +80,40 @@ async function boot() {
     if (ctrl && e.key.toLowerCase() === 't') {
       e.preventDefault()
       desktop.openTerminal()
+      return
+    }
+    // Closes the window the user last touched — the same Ctrl+W the titlebar
+    // has always promised.
+    if (ctrl && !e.shiftKey && e.key.toLowerCase() === 'w') {
+      e.preventDefault()
+      const closed = desktop.closeFocused()
+      if (!closed) toast('Нищо не е избрано — щракни върху прозорец', { timeout: 2200 })
+      return
+    }
+    if (ctrl && e.key.toLowerCase() === 'm') {
+      e.preventDefault()
+      toast(minimap.toggle() ? 'Картата е включена' : 'Картата е скрита', { timeout: 1600 })
+      return
+    }
+    // Tidy the workspace into a grid. Shift, so a stray Ctrl+G never moves
+    // three hundred windows by accident.
+    if (ctrl && e.shiftKey && e.key.toLowerCase() === 'g') {
+      e.preventDefault()
+      const count = desktop.tidy()
+      toast(count ? `Подредени ${count} прозореца` : 'Пространството е празно', { timeout: 2200 })
+      return
+    }
+    if (ctrl && e.shiftKey && e.code === 'Digit0') {
+      e.preventDefault()
+      const fit = desktop.fitAll()
+      if (!fit) toast('Няма какво да се побере — пространството е празно', { timeout: 2200 })
+      else if (!fit.fits) {
+        minimap.setVisible(true)
+        toast('Платното е по-широко от най-далечния мащаб — картата показва останалото', {
+          tone: 'warn',
+          timeout: 4000
+        })
+      }
       return
     }
     if (ctrl && e.shiftKey && e.code === 'Space') {

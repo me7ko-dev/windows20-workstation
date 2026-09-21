@@ -9,7 +9,7 @@
 
 import { createVoice } from './voice.js'
 
-export function createCommandBar({ root, desktop, programs, canvas, toast }) {
+export function createCommandBar({ root, desktop, programs, canvas, toast, minimap }) {
   const el = document.createElement('div')
   el.className = 'w20-bar'
   el.innerHTML = `
@@ -107,6 +107,36 @@ export function createCommandBar({ root, desktop, programs, canvas, toast }) {
         run: () => canvas.resetZoom()
       },
       {
+        id: 'view:all',
+        label: 'Побери всичко в екрана',
+        hint: 'Ctrl+Shift+0',
+        keywords: ['побери', 'всичко', 'fit', 'обхват', 'отдалечи', 'покажи', 'всички'],
+        run: () => {
+          const fit = desktop.fitAll()
+          if (!fit) flash('Пространството е празно')
+          else if (!fit.fits) flash('По-широко е от най-далечния мащаб — виж картата (Ctrl+M)')
+        }
+      },
+      {
+        id: 'view:tidy',
+        label: 'Подреди прозорците',
+        hint: 'Ctrl+Shift+G — в мрежа, без преоразмеряване',
+        keywords: ['подреди', 'нареди', 'мрежа', 'tidy', 'разчисти', 'прозорците', 'подреждане'],
+        run: () => {
+          const count = desktop.tidy()
+          flash(count ? `Подредени ${count} прозореца` : 'Пространството е празно')
+        }
+      },
+      {
+        id: 'view:map',
+        label: minimap && minimap.isVisible() ? 'Скрий картата на платното' : 'Покажи картата на платното',
+        hint: 'Ctrl+M',
+        keywords: ['карта', 'map', 'минимап', 'minimap', 'преглед', 'обзор'],
+        run: () => {
+          if (minimap) flash(minimap.toggle() ? 'Картата е включена' : 'Картата е скрита')
+        }
+      },
+      {
         id: 'station:new',
         label: 'Нова станция',
         hint: 'отделен прозорец — Ctrl+Alt+N',
@@ -165,6 +195,24 @@ export function createCommandBar({ root, desktop, programs, canvas, toast }) {
         run: () => desktop.switchTo(index)
       })
     })
+
+    // Moving a window between workspaces only makes sense when there is one
+    // selected — an offer to move "nothing" is noise in the list.
+    const selected = desktop.focusedNode()
+    if (selected) {
+      desktop.workspaces.forEach((ws, index) => {
+        if (index === desktop.activeIndex) return
+        commands.push({
+          id: `move:${index}`,
+          label: `Премести „${selected.title}“ в пространство ${ws.name}`,
+          hint: selected.type === 'terminal' ? 'терминалът продължава да работи' : `${ws.nodes.length} прозореца`,
+          keywords: ['премести', 'move', 'прехвърли', 'пространство', ws.name, selected.title],
+          run: () => {
+            if (desktop.moveNodeTo(selected.id, index)) flash(`„${selected.title}“ е в пространство ${ws.name}`)
+          }
+        })
+      })
+    }
 
     commands.push({
       id: 'paper:random',

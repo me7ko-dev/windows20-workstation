@@ -224,6 +224,12 @@ body.is-booting .w20-shell {
   visibility: hidden;
 }
 
+/* At that distance the dot grid is finer than a pixel — it turns into moire and
+   costs a full-screen repaint for it. */
+.w20-viewport.is-far .w20-plane-bg {
+  opacity: 0;
+}
+
 .w20-window.is-dragging {
   box-shadow: 0 34px 90px rgba(0, 0, 0, 0.65);
   border-color: var(--node-accent);
@@ -231,6 +237,18 @@ body.is-booting .w20-shell {
 
 .w20-window.is-flashing {
   animation: w20-flash 900ms ease;
+}
+
+/* Only for moves the desktop made — a tidy. Dragging writes the transform on
+   every pointer frame, and a transition there would trail the cursor. */
+.w20-window.is-settling {
+  transition: transform 300ms cubic-bezier(0.2, 0.8, 0.3, 1);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .w20-window.is-settling {
+    transition-duration: 1ms;
+  }
 }
 
 @keyframes w20-flash {
@@ -528,6 +546,58 @@ body.is-booting .w20-shell {
   flex-shrink: 0;
 }
 
+/* ---------------------------------------------------------------- map */
+
+/* Sits above the bar, out of the way of the dock on the left. Windows that the
+   viewport cannot reach are not painted at all, so without this the only proof
+   they exist is the count in the bar. */
+.w20-map {
+  position: absolute;
+  right: 14px;
+  bottom: calc(var(--bar-h) + 14px);
+  z-index: 40;
+  padding: 6px;
+  border-radius: 12px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.5);
+  backdrop-filter: blur(14px);
+}
+
+.w20-map[hidden] {
+  display: none;
+}
+
+.w20-map-canvas {
+  display: block;
+  border-radius: 7px;
+  background: rgba(0, 0, 0, 0.32);
+  cursor: crosshair;
+}
+
+.w20-map-label {
+  position: absolute;
+  left: 12px;
+  top: 10px;
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  color: var(--text-muted);
+  pointer-events: none;
+  font-variant-numeric: tabular-nums;
+}
+
+/* On a narrow window the map would cover the tabs; the bar wins — and the
+   messages take the room back. */
+@media (max-width: 860px) {
+  .w20-map {
+    display: none;
+  }
+
+  .w20-toasts {
+    bottom: calc(var(--bar-h) + 8px);
+  }
+}
+
 .w20-bar-load {
   padding-left: 10px;
   margin-left: 2px;
@@ -692,10 +762,12 @@ body.is-booting .w20-shell {
 
 /* -------------------------------------------------------------- toasts */
 
+/* Messages stack in the same corner as the map, so they step over it while it
+   is on rather than covering the thing the message is usually about. */
 .w20-toasts {
   position: absolute;
   right: 18px;
-  bottom: calc(var(--bar-h) + 8px);
+  bottom: calc(var(--bar-h) + var(--map-clear, 8px));
   display: flex;
   flex-direction: column-reverse;
   gap: 8px;

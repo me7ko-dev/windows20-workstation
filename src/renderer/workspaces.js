@@ -319,6 +319,140 @@ export function createDesktop({ plane, canvas, programs, home }) {
     changed()
   }
 
+  function nodeById(id) {
+    for (const ws of workspaces) {
+      const node = ws.nodes.find((n) => n.id === id)
+      if (node) return { node, ws }
+    }
+    return null
+  }
+
+  /** The window the user last touched, whatever kind it is. */
+  function focusedNode() {
+    const found = focusedId ? nodeById(focusedId) : null
+    return found ? found.node : null
+  }
+
+  function closeFocused() {
+    if (!focusedId || !nodeById(focusedId)) return null
+    const title = nodeById(focusedId).node.title
+    closeNode(focusedId)
+    return title
+  }
+
+  /**
+   * Move a window to another workspace, keeping whatever is running in it.
+   * The element is re-parented rather than rebuilt, so a terminal crosses
+   * intact; anything that can be rebuilt from the model is simply dropped if
+   * nobody is looking at the destination.
+   */
+  function moveNodeTo(id, index) {
+    const target = workspaces[index]
+    const found = nodeById(id)
+    if (!target || !found || found.ws === target) return false
+
+    found.ws.nodes = found.ws.nodes.filter((n) => n.id !== id)
+    target.nodes.push(found.node)
+
+    if (live.has(id)) {
+      if (index === activeIndex || found.node.type === 'terminal') {
+        live.get(id).win.reparent(planeFor(index))
+      } else {
+        tearDown(id)
+      }
+    }
+
+    // Puts every plane's hidden flag back in order and mounts anything the
+    // active workspace has gained.
+    renderActive()
+    changed()
+    return true
+  }
+
+  /** The rectangle every window of a workspace fits inside. */
+  function bounds(ws = activeWorkspace()) {
+    if (!ws.nodes.length) return null
+    let left = Infinity
+    let top = Infinity
+    let right = -Infinity
+    let bottom = -Infinity
+    for (const node of ws.nodes) {
+      left = Math.min(left, node.x)
+      top = Math.min(top, node.y)
+      right = Math.max(right, node.x + node.width)
+      bottom = Math.max(bottom, node.y + node.height)
+    }
+    return { x: left, y: top, width: right - left, height: bottom - top }
+  }
+
+  /**
+   * Pull the whole workspace into view. There is a limit to how far the canvas
+   * zooms out, so this reports whether everything actually made it — a fit that
+   * quietly left work off the edge is how a window gets lost for good.
+   */
+  function fitAll() {
+    const box = bounds()
+    if (!box) return null
+    canvas.focus(box, { fit: true })
+    const seen = canvas.visibleRect(0)
+    return {
+      count: activeWorkspace().nodes.length,
+      fits:
+        box.x >= seen.left &&
+        box.y >= seen.top &&
+        box.x + box.width <= seen.right &&
+        box.y + box.height <= seen.bottom
+    }
+  }
+
+  const TIDY_GAP = 36
+
+  /**
+   * Lay the workspace out on a grid, in the order the windows already read —
+   * top to bottom, then left to right — so tidying rearranges the spacing
+   * without shuffling what the user built. Sizes are kept: a window is the
+   * size it is because someone made it that size.
+   */
+  function tidy() {
+    const ws = activeWorkspace()
+    if (!ws.nodes.length) return 0
+
+    const box = bounds(ws)
+    const ordered = [...ws.nodes].sort((a, b) => a.y - b.y || a.x - b.x)
+    const columns = Math.max(1, Math.round(Math.sqrt(ordered.length)))
+    const columnWidth = Math.max(...ordered.map((n) => n.width)) + TIDY_GAP
+
+    let x = box.x
+    let y = box.y
+    let rowHeight = 0
+    let column = 0
+
+    for (const node of ordered) {
+      node.x = Math.round(x)
+      node.y = Math.round(y)
+      rowHeight = Math.max(rowHeight, node.height)
+      x += columnWidth
+      column += 1
+      if (column === columns) {
+        column = 0
+        x = box.x
+        y += rowHeight + TIDY_GAP
+        rowHeight = 0
+      }
+    }
+
+    for (const node of ws.nodes) {
+      const entry = live.get(node.id)
+      if (!entry) continue
+      entry.win.settle()
+      entry.win.place()
+    }
+
+    scheduleCull()
+    changed()
+    return ordered.length
+  }
+
   /* -------------------------------------------------------- public api */
 
   function addNode(partial, { focus = true } = {}) {
@@ -338,6 +472,9 @@ export function createDesktop({ plane, canvas, programs, home }) {
 
     ws.nodes.push(node)
     const { win, content } = mountNode(node)
+    // A window opened is a window focused — otherwise Ctrl+W after Ctrl+T would
+    // close whatever the user happened to click last, which is worse than nothing.
+    if (focus) focusedId = node.id
     if (focus && content && content.focus) requestAnimationFrame(() => content.focus())
     scheduleCull()
     changed()
@@ -529,6 +666,12 @@ export function createDesktop({ plane, canvas, programs, home }) {
     openNote,
     openSettings,
     closeNode,
+    closeFocused,
+    focusedNode,
+    moveNodeTo,
+    bounds,
+    fitAll,
+    tidy,
     addWorkspace,
     closeWorkspace,
     step,
