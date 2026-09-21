@@ -2,6 +2,7 @@ import { createNodeWindow } from './node-window.js'
 import { mountTerminal } from './nodes/terminal.js'
 import { mountNote } from './nodes/note.js'
 import { mountLauncher } from './nodes/launcher.js'
+import { mountSettings } from './nodes/settings.js'
 
 /**
  * Workspaces hold the layout; this module owns the live windows.
@@ -22,7 +23,8 @@ const WALLPAPERS = [
 const DEFAULT_SIZES = {
   terminal: { width: 720, height: 460 },
   note: { width: 340, height: 280 },
-  launcher: { width: 320, height: 300 }
+  launcher: { width: 320, height: 300 },
+  settings: { width: 380, height: 420 }
 }
 
 let seq = 0
@@ -35,6 +37,7 @@ export function createDesktop({ plane, canvas, programs, home }) {
   const workspaces = []
   let activeIndex = 0
   const live = new Map() // nodeId -> { win, content }
+  let focusedId = null
   const planes = new Map() // workspaceIndex -> plane element
   const listeners = new Set()
   let saveTimer = null
@@ -106,7 +109,10 @@ export function createDesktop({ plane, canvas, programs, home }) {
       plane: planeFor(activeIndex),
       onChange: changed,
       onClose: (n) => closeNode(n.id),
-      onFocus: () => {}
+      // Dictation needs to know which terminal the words belong to.
+      onFocus: (n) => {
+        focusedId = n.id
+      }
     })
 
     let content = null
@@ -120,6 +126,8 @@ export function createDesktop({ plane, canvas, programs, home }) {
           scheduleSave()
         }
       })
+    } else if (node.type === 'settings') {
+      content = mountSettings(win, {})
     } else if (node.type === 'launcher') {
       const program = programs.find((p) => p.id === node.programId)
       content = program ? mountLauncher(win, { program }) : null
@@ -144,6 +152,7 @@ export function createDesktop({ plane, canvas, programs, home }) {
   }
 
   function closeNode(id) {
+    if (focusedId === id) focusedId = null
     const entry = live.get(id)
     if (entry) {
       if (entry.content && entry.content.destroy) entry.content.destroy()
@@ -201,6 +210,16 @@ export function createDesktop({ plane, canvas, programs, home }) {
       cwd: cwd || activeWorkspace().cwd,
       accent: program.accent
     })
+  }
+
+  function openSettings() {
+    const existing = Array.from(live.values()).find((entry) => entry.win.node.type === 'settings')
+    if (existing) {
+      existing.win.raise()
+      existing.win.focusInView()
+      return existing
+    }
+    return addNode({ type: 'settings', title: 'Настройки', accent: '#9aa2b1', width: 380, height: 420 })
   }
 
   function openNote(text = '', size = {}) {
@@ -279,7 +298,14 @@ export function createDesktop({ plane, canvas, programs, home }) {
     openTerminal,
     openProgram,
     openNote,
+    openSettings,
     closeNode,
+    /** The terminal the user last touched — where dictated text should go. */
+    focusedTerminal: () => {
+      const entry = focusedId ? live.get(focusedId) : null
+      if (!entry || entry.win.node.type !== 'terminal') return null
+      return entry
+    },
     switchTo,
     setWallpaper,
     applyWallpaper,

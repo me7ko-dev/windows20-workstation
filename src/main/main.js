@@ -7,9 +7,12 @@ const { app, BrowserWindow, ipcMain, shell, dialog } = require('electron')
 const term = require('./pty')
 const { detect } = require('./programs')
 const { createStore } = require('./store')
+const { createSettings } = require('./settings')
+const { transcribe } = require('./stt')
 
 let mainWindow = null
 let store = null
+let settings = null
 let programCache = null
 
 function programs() {
@@ -53,6 +56,12 @@ function createWindow() {
   })
   mainWindow.webContents.on('will-navigate', (event) => event.preventDefault())
 
+  // The canvas is our own page, but it must not be able to grant itself
+  // anything beyond the microphone the voice bar needs.
+  mainWindow.webContents.session.setPermissionRequestHandler((_contents, permission, callback) => {
+    callback(permission === 'media' || permission === 'audioCapture')
+  })
+
   mainWindow.on('closed', () => {
     mainWindow = null
   })
@@ -60,6 +69,7 @@ function createWindow() {
 
 app.whenReady().then(() => {
   store = createStore(app.getPath('userData'))
+  settings = createSettings(app.getPath('userData'))
   createWindow()
 
   app.on('activate', () => {
@@ -142,6 +152,21 @@ ipcMain.handle('term:create', (_e, opts) => {
 ipcMain.on('term:write', (_e, { id, data }) => term.write(id, data))
 ipcMain.on('term:resize', (_e, { id, cols, rows }) => term.resize(id, cols, rows))
 ipcMain.on('term:kill', (_e, { id }) => term.kill(id))
+
+/* ----------------------------------------------------------------- voice */
+
+ipcMain.handle('voice:transcribe', async (_e, { buffer, mimeType }) => {
+  if (!settings) return { ok: false, error: 'Настройките още не са заредени.' }
+  return transcribe({ audio: Buffer.from(buffer), mimeType }, settings)
+})
+
+ipcMain.handle('settings:get', () => (settings ? settings.safe() : null))
+
+ipcMain.handle('settings:set', (_e, patch) => {
+  if (!settings) return null
+  settings.write(patch || {})
+  return settings.safe()
+})
 
 /* ----------------------------------------------------------------- state */
 

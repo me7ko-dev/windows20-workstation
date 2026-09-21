@@ -32,6 +32,16 @@ contextBridge.exposeInMainWorld('w20', {
     }
   },
 
+  voice: {
+    // The key never crosses this bridge — audio goes out, text comes back.
+    transcribe: (buffer, mimeType) => ipcRenderer.invoke('voice:transcribe', { buffer, mimeType })
+  },
+
+  settings: {
+    get: () => ipcRenderer.invoke('settings:get'),
+    set: (patch) => ipcRenderer.invoke('settings:set', patch)
+  },
+
   state: {
     load: () => ipcRenderer.invoke('state:load'),
     save: (state) => ipcRenderer.invoke('state:save', state)

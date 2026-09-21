@@ -7,7 +7,9 @@
  * instead of inventing its own actions.
  */
 
-export function createCommandBar({ root, desktop, programs, canvas }) {
+import { createVoice } from './voice.js'
+
+export function createCommandBar({ root, desktop, programs, canvas, toast }) {
   const el = document.createElement('div')
   el.className = 'w20-bar'
   el.innerHTML = `
@@ -26,9 +28,22 @@ export function createCommandBar({ root, desktop, programs, canvas }) {
   const tabsEl = el.querySelector('[data-role="tabs"]')
   const micBtn = el.querySelector('[data-role="mic"]')
 
-  micBtn.addEventListener('click', () => {
-    flash('Гласовото управление идва в следваща стъпка — засега пиши тук.')
+  const voice = createVoice({
+    onState: (state) => {
+      el.dataset.voice = state
+      micBtn.title =
+        state === 'listening' ? 'Слушам — натисни пак, за да спреш' : state === 'working' ? 'Разпознавам…' : 'Говори (Ctrl+Shift+Space)'
+    },
+    onTranscript: (result) => {
+      if (!result.ok) {
+        toast(result.error, { tone: 'error' })
+        return
+      }
+      handleSpoken(result.text)
+    }
   })
+
+  micBtn.addEventListener('click', () => voice.toggle())
 
   /* ------------------------------------------------------- the verb table */
 
@@ -70,6 +85,13 @@ export function createCommandBar({ root, desktop, programs, canvas }) {
             flash(`Папката вече е ${dir}`)
           }
         }
+      },
+      {
+        id: 'sys:settings',
+        label: 'Настройки',
+        hint: 'ключ за гласа, език',
+        keywords: ['настройки', 'settings', 'ключ', 'key', 'глас', 'voice'],
+        run: () => desktop.openSettings()
       },
       {
         id: 'view:fit',
@@ -228,6 +250,39 @@ export function createCommandBar({ root, desktop, programs, canvas }) {
     }
   })
 
+  /* -------------------------------------------------------------- speech */
+
+  /**
+   * Where a sentence goes depends on what the user was last touching. Typed
+   * into a focused agent it is a prompt; said to the desktop it is an action.
+   * Guessing wrong either way is worse than the rule being explicit.
+   */
+  function handleSpoken(text) {
+    const target = desktop.focusedTerminal()
+    if (target && target.content && target.content.send) {
+      target.content.send(text)
+      toast(`Продиктувано в „${target.win.node.title}“: ${text}`, { timeout: 5000 })
+      return
+    }
+
+    const best = allCommands()
+      .map((command) => ({ command, rank: score(command, text) }))
+      .filter((entry) => entry.rank >= 2)
+      .sort((a, b) => b.rank - a.rank)[0]
+
+    if (best) {
+      toast(`${best.command.label}`, { timeout: 4000 })
+      best.command.run()
+      return
+    }
+
+    // Nothing matched confidently — show the words rather than act on a guess.
+    input.value = text
+    input.focus()
+    refresh()
+    toast(`Не разпознах команда в „${text}“ — оставих я в лентата.`, { tone: 'warn' })
+  }
+
   /* --------------------------------------------------------------- tabs */
 
   function drawTabs() {
@@ -252,6 +307,7 @@ export function createCommandBar({ root, desktop, programs, canvas }) {
       input.select()
       refresh()
     },
+    toggleVoice: () => voice.toggle(),
     flash
   }
 }

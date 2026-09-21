@@ -9,10 +9,15 @@ const WELCOME = `Добре дошъл в работната станция.
 • Ctrl+T — нов терминал
 • Ctrl+N — нова бележка
 • Ctrl+1…4 — работни пространства
+• Ctrl+Shift+Space — говори
 • Ctrl + колелце — мащаб, влачене по фона — местене
 
 Отляво са програмите, които наистина са на този компютър.
-Тези с терминал се отварят тук, на платното.`
+Тези с терминал се отварят тук, на платното.
+
+За гласа: отвори Настройки (Ctrl+K → „настройки“) и
+въведи ключ за транскрипция. Ако е фокусиран терминал,
+казаното отива в него; иначе става команда.`
 
 async function boot() {
   const viewport = document.getElementById('viewport')
@@ -30,7 +35,7 @@ async function boot() {
   desktop.load(saved)
   const firstRun = !saved
 
-  const bar = createCommandBar({ root, desktop, programs: info.programs, canvas })
+  const bar = createCommandBar({ root, desktop, programs: info.programs, canvas, toast })
   buildDock(root, info.programs, desktop)
 
   if (!info.ptyAvailable) {
@@ -58,6 +63,11 @@ async function boot() {
     if (ctrl && e.key.toLowerCase() === 't') {
       e.preventDefault()
       desktop.openTerminal()
+      return
+    }
+    if (ctrl && e.shiftKey && e.code === 'Space') {
+      e.preventDefault()
+      bar.toggleVoice()
       return
     }
     if (ctrl && e.key.toLowerCase() === 'n') {
