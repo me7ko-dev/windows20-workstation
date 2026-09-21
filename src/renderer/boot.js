@@ -9,6 +9,7 @@ const WELCOME = `Добре дошъл в работната станция.
 • Ctrl+T — нов терминал
 • Ctrl+N — нова бележка
 • Ctrl+Shift+N — ново пространство
+• Ctrl+Alt+N — нова станция (отделен прозорец)
 • Ctrl+1…9 и Ctrl+Tab — между пространствата
 • Ctrl+Shift+Space — говори
 • Ctrl + колелце — мащаб, влачене по фона — местене
@@ -30,6 +31,9 @@ async function boot() {
 
   const info = await window.w20.programs()
   const home = await window.w20.home()
+  const station = await window.w20.station.info()
+
+  if (station) document.getElementById('station').textContent = `СТАНЦИЯ ${station.id}`
 
   const toast = createToasts(root)
   const canvas = createCanvas(viewport, plane)
@@ -72,6 +76,12 @@ async function boot() {
     if (ctrl && e.shiftKey && e.code === 'Space') {
       e.preventDefault()
       bar.toggleVoice()
+      return
+    }
+    // A whole second workstation, not another workspace inside this one.
+    if (ctrl && e.altKey && e.key.toLowerCase() === 'n') {
+      e.preventDefault()
+      window.w20.station.open()
       return
     }
     if (ctrl && e.shiftKey && e.key.toLowerCase() === 'n') {

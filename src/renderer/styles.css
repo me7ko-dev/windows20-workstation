@@ -66,6 +66,22 @@ body.is-booting .w20-shell {
   font-weight: 600;
 }
 
+/* Which station this window is — the point of telling three of them apart. */
+.w20-titlebar-station {
+  margin-left: 10px;
+  padding: 2px 8px;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+  color: var(--text);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.08em;
+}
+
+.w20-titlebar-station:empty {
+  display: none;
+}
+
 /* -------------------------------------------------------------- canvas */
 
 .w20-viewport {
@@ -529,6 +545,31 @@ body.is-booting .w20-shell {
   height: 4px;
   border-radius: 50%;
   background: var(--accent);
+}
+
+/* Three stations side by side leave each one about a third of the screen. The
+   dock drops its labels and the bar drops what it can repeat elsewhere, so the
+   input keeps a usable width instead of the row overflowing. */
+@media (max-width: 860px) {
+  .w20-bar {
+    width: calc(100% - 28px);
+  }
+
+  .w20-bar-hint {
+    display: none;
+  }
+
+  .w20-bar-tabs {
+    max-width: 118px;
+  }
+
+  .w20-dock-label {
+    display: none;
+  }
+
+  .w20-dock-item {
+    justify-content: center;
+  }
 }
 
 .w20-bar-results {

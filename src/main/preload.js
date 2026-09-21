@@ -45,5 +45,10 @@ contextBridge.exposeInMainWorld('w20', {
   state: {
     load: () => ipcRenderer.invoke('state:load'),
     save: (state) => ipcRenderer.invoke('state:save', state)
+  },
+
+  station: {
+    info: () => ipcRenderer.invoke('station:info'),
+    open: () => ipcRenderer.invoke('station:open')
   }
 })

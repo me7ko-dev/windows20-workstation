@@ -16,7 +16,12 @@ try {
   ptyError = err.message
 }
 
+/**
+ * Keyed by owner *and* id: two station windows number their terminals
+ * independently, so the renderer's id alone is not unique across the app.
+ */
 const sessions = new Map()
+const keyFor = (owner, id) => `${owner}\u0000${id}`
 
 function defaultShell() {
   if (process.platform !== 'win32') return process.env.SHELL || '/bin/bash'
@@ -24,9 +29,10 @@ function defaultShell() {
   return process.env.W20_SHELL || 'powershell.exe'
 }
 
-function create({ id, cwd, shell, args = [], cols = 80, rows = 24 }, onData, onExit) {
+function create({ owner, id, cwd, shell, args = [], cols = 80, rows = 24 }, onData, onExit) {
   if (!pty) throw new Error(`node-pty is not built: ${ptyError}`)
-  if (sessions.has(id)) return sessions.get(id)
+  const key = keyFor(owner, id)
+  if (sessions.has(key)) return sessions.get(key)
 
   const proc = pty.spawn(shell || defaultShell(), args, {
     name: 'xterm-color',
@@ -39,21 +45,21 @@ function create({ id, cwd, shell, args = [], cols = 80, rows = 24 }, onData, onE
 
   proc.onData((data) => onData(id, data))
   proc.onExit(({ exitCode }) => {
-    sessions.delete(id)
+    sessions.delete(key)
     onExit(id, exitCode)
   })
 
-  sessions.set(id, proc)
+  sessions.set(key, proc)
   return proc
 }
 
-function write(id, data) {
-  const proc = sessions.get(id)
+function write(owner, id, data) {
+  const proc = sessions.get(keyFor(owner, id))
   if (proc) proc.write(data)
 }
 
-function resize(id, cols, rows) {
-  const proc = sessions.get(id)
+function resize(owner, id, cols, rows) {
+  const proc = sessions.get(keyFor(owner, id))
   if (!proc) return
   try {
     proc.resize(Math.max(cols, 2), Math.max(rows, 2))
@@ -62,19 +68,41 @@ function resize(id, cols, rows) {
   }
 }
 
-function kill(id) {
-  const proc = sessions.get(id)
+function killKey(key) {
+  const proc = sessions.get(key)
   if (!proc) return
   try {
     proc.kill()
   } catch {
     // already gone
   }
-  sessions.delete(id)
+  sessions.delete(key)
+}
+
+function kill(owner, id) {
+  killKey(keyFor(owner, id))
+}
+
+/** A station window closed: everything running in it goes with it. */
+function killOwner(owner) {
+  const prefix = `${owner}\u0000`
+  for (const key of Array.from(sessions.keys())) {
+    if (key.startsWith(prefix)) killKey(key)
+  }
 }
 
 function killAll() {
-  for (const id of Array.from(sessions.keys())) kill(id)
+  for (const key of Array.from(sessions.keys())) killKey(key)
 }
 
-module.exports = { create, write, resize, kill, killAll, defaultShell, available: () => Boolean(pty), error: () => ptyError }
+module.exports = {
+  create,
+  write,
+  resize,
+  kill,
+  killOwner,
+  killAll,
+  defaultShell,
+  available: () => Boolean(pty),
+  error: () => ptyError
+}

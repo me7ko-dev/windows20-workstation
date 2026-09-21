@@ -107,6 +107,16 @@ export function createCommandBar({ root, desktop, programs, canvas, toast }) {
         run: () => canvas.resetZoom()
       },
       {
+        id: 'station:new',
+        label: 'Нова станция',
+        hint: 'отделен прозорец — Ctrl+Alt+N',
+        keywords: ['станция', 'station', 'прозорец', 'window', 'нова'],
+        run: async () => {
+          const opened = await window.w20.station.open()
+          flash(`Станция ${opened.id} е отворена`)
+        }
+      },
+      {
         id: 'ws:new',
         label: 'Ново пространство',
         hint: 'Ctrl+Shift+N',
