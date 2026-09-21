@@ -117,6 +117,26 @@ export function createCommandBar({ root, desktop, programs, canvas, toast }) {
         }
       },
       {
+        id: 'station:next',
+        label: 'Следваща станция',
+        hint: 'Ctrl+` — обръща прозореца',
+        keywords: ['следваща', 'станция', 'station', 'next', 'обърни', 'превърти'],
+        run: async () => {
+          const to = await window.w20.station.cycle(1)
+          if (!to) flash('Има само една станция — Ctrl+Alt+N отваря втора')
+        }
+      },
+      {
+        id: 'station:tile',
+        label: 'Подреди станциите една до друга',
+        hint: 'по целия екран',
+        keywords: ['подреди', 'една до друга', 'tile', 'станции', 'нареди'],
+        run: async () => {
+          const result = await window.w20.station.tile()
+          if (result) flash(`${result.count} станции са подредени`)
+        }
+      },
+      {
         id: 'ws:new',
         label: 'Ново пространство',
         hint: 'Ctrl+Shift+N',

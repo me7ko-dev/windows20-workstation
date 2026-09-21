@@ -2,7 +2,7 @@
 
 const path = require('path')
 const os = require('os')
-const { app, BrowserWindow, ipcMain, shell, dialog } = require('electron')
+const { app, BrowserWindow, ipcMain, shell, dialog, screen } = require('electron')
 
 const term = require('./pty')
 const { detect } = require('./programs')
@@ -30,6 +30,11 @@ function programs() {
 /** The station that sent an IPC message. */
 function stationOf(event) {
   return stations.get(event.sender.id) || null
+}
+
+/** Stations in a stable order, so cycling always goes the same way round. */
+function ordered() {
+  return Array.from(stations.values()).sort((a, b) => a.id.localeCompare(b.id))
 }
 
 /** Lowest number not already taken by an open station. */
@@ -140,6 +145,53 @@ ipcMain.handle('station:info', (e) => {
 ipcMain.handle('station:open', () => {
   const win = createWindow()
   return { id: stations.get(win.webContents.id).id }
+})
+
+/**
+ * Turn to the next station. Two OS windows cannot share one 3D transform, so
+ * the flip is played in halves: the one being left turns away, and the one
+ * arriving turns in as it comes forward. Neither half is worth waiting on if
+ * there is nowhere to turn to.
+ */
+const FLIP_MS = 170
+
+ipcMain.handle('station:cycle', async (e, delta) => {
+  const from = stationOf(e)
+  const list = ordered()
+  if (!from || list.length < 2) return null
+
+  const at = list.findIndex((s) => s.id === from.id)
+  const step = delta < 0 ? -1 : 1
+  const to = list[(at + step + list.length) % list.length]
+
+  const direction = step > 0 ? 'forward' : 'back'
+  from.win.webContents.send('station:flip', { half: 'out', direction })
+  await new Promise((resolve) => setTimeout(resolve, FLIP_MS))
+
+  if (to.win.isDestroyed()) return null
+  if (to.win.isMinimized()) to.win.restore()
+  to.win.show()
+  to.win.focus()
+  to.win.webContents.send('station:flip', { half: 'in', direction })
+  return { id: to.id }
+})
+
+/** Side by side across the screen — kept as a choice, never the default. */
+ipcMain.handle('station:tile', () => {
+  const list = ordered()
+  if (!list.length) return null
+  const area = screen.getPrimaryDisplay().workArea
+  const width = Math.floor(area.width / list.length)
+  list.forEach((station, i) => {
+    if (station.win.isMinimized()) station.win.restore()
+    station.win.setBounds({
+      x: area.x + i * width,
+      y: area.y,
+      width: i === list.length - 1 ? area.width - i * width : width,
+      height: area.height
+    })
+  })
+  return { count: list.length }
 })
 
 /* ---------------------------------------------------------------- system */

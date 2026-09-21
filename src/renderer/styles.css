@@ -37,6 +37,69 @@ body.is-booting .w20-shell {
   position: absolute;
   inset: var(--titlebar-h) 0 0 0;
   transition: opacity 240ms ease;
+  transform-origin: 50% 50%;
+  /* The turn promotes this to its own layer; an explicit background means that
+     layer is never handed to the compositor with nothing painted in it. */
+  background: var(--bg);
+}
+
+/* Turning between stations. Each window plays one half; together they read as
+   one panel turning over to bring the next station to the front. */
+.w20-shell.is-turning-out {
+  animation: w20-turn-out 170ms ease-in forwards;
+}
+
+.w20-shell.is-turning-in {
+  animation: w20-turn-in 240ms cubic-bezier(0.2, 0.8, 0.3, 1);
+}
+
+.w20-shell[data-turn='back'].is-turning-out {
+  animation-name: w20-turn-out-back;
+}
+
+.w20-shell[data-turn='back'].is-turning-in {
+  animation-name: w20-turn-in-back;
+}
+
+/* The turn is 2D on purpose. A rotateY reads better in theory, but it hands
+   the compositor a 3D render surface the size of the window, and a station
+   overlapping another one can be presented before that surface is painted —
+   a white flash exactly where the two windows cross. A horizontal squeeze
+   plus a slide reads as the same panel turning edge-on and costs nothing. */
+@keyframes w20-turn-out {
+  to {
+    opacity: 0.2;
+    transform: translateX(-7%) scaleX(0.8) scaleY(0.96);
+  }
+}
+
+@keyframes w20-turn-in {
+  from {
+    opacity: 0.2;
+    transform: translateX(7%) scaleX(0.8) scaleY(0.96);
+  }
+}
+
+@keyframes w20-turn-out-back {
+  to {
+    opacity: 0.2;
+    transform: translateX(7%) scaleX(0.8) scaleY(0.96);
+  }
+}
+
+@keyframes w20-turn-in-back {
+  from {
+    opacity: 0.2;
+    transform: translateX(-7%) scaleX(0.8) scaleY(0.96);
+  }
+}
+
+/* Someone who asked for less movement gets the switch without the turn. */
+@media (prefers-reduced-motion: reduce) {
+  .w20-shell.is-turning-out,
+  .w20-shell.is-turning-in {
+    animation-duration: 1ms;
+  }
 }
 
 /* ----------------------------------------------------------- title bar */

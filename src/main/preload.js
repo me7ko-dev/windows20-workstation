@@ -49,6 +49,13 @@ contextBridge.exposeInMainWorld('w20', {
 
   station: {
     info: () => ipcRenderer.invoke('station:info'),
-    open: () => ipcRenderer.invoke('station:open')
+    open: () => ipcRenderer.invoke('station:open'),
+    cycle: (delta) => ipcRenderer.invoke('station:cycle', delta),
+    tile: () => ipcRenderer.invoke('station:tile'),
+    onFlip: (handler) => {
+      const listener = (_e, payload) => handler(payload)
+      ipcRenderer.on('station:flip', listener)
+      return () => ipcRenderer.removeListener('station:flip', listener)
+    }
   }
 })

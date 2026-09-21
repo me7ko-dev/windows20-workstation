@@ -10,6 +10,7 @@ const WELCOME = `Добре дошъл в работната станция.
 • Ctrl+N — нова бележка
 • Ctrl+Shift+N — ново пространство
 • Ctrl+Alt+N — нова станция (отделен прозорец)
+• Ctrl+\` — обръща към следващата станция
 • Ctrl+1…9 и Ctrl+Tab — между пространствата
 • Ctrl+Shift+Space — говори
 • Ctrl + колелце — мащаб, влачене по фона — местене
@@ -34,6 +35,7 @@ async function boot() {
   const station = await window.w20.station.info()
 
   if (station) document.getElementById('station').textContent = `СТАНЦИЯ ${station.id}`
+  mountFlip()
 
   const toast = createToasts(root)
   const canvas = createCanvas(viewport, plane)
@@ -78,6 +80,13 @@ async function boot() {
       bar.toggleVoice()
       return
     }
+    // Turn to the next station. Matched on the physical key, so it works the
+    // same on a Bulgarian layout as on a Latin one.
+    if (ctrl && e.code === 'Backquote') {
+      e.preventDefault()
+      window.w20.station.cycle(e.shiftKey ? -1 : 1)
+      return
+    }
     // A whole second workstation, not another workspace inside this one.
     if (ctrl && e.altKey && e.key.toLowerCase() === 'n') {
       e.preventDefault()
@@ -118,6 +127,41 @@ async function boot() {
   })
 
   document.body.classList.remove('is-booting')
+}
+
+/**
+ * Turning from one station to the next. Each window only ever plays its own
+ * half — turning away, or turning in — because they are separate OS windows
+ * and no transform can span them.
+ */
+const TURN_IN_MS = 260
+
+function mountFlip() {
+  const shell = document.getElementById('shell')
+  let settle = 0
+
+  window.w20.station.onFlip(({ half, direction }) => {
+    clearTimeout(settle)
+    shell.classList.remove('is-turning-out', 'is-turning-in')
+    // Restart the animation even if the same class was just removed.
+    void shell.offsetWidth
+    shell.dataset.turn = direction
+
+    if (half === 'out') {
+      // Holds the turned-away pose: this window is behind now, and snapping it
+      // upright would flash the canvas before the next station is in front.
+      shell.classList.add('is-turning-out')
+      return
+    }
+
+    shell.classList.add('is-turning-in')
+    // A timer rather than `animationend`, which a window still coming out of
+    // the background may never fire — and then the class would never lift.
+    settle = setTimeout(() => shell.classList.remove('is-turning-in'), TURN_IN_MS)
+  })
+
+  // Back in front by any route — the shortcut, the taskbar, a click.
+  window.addEventListener('focus', () => shell.classList.remove('is-turning-out'))
 }
 
 /** The strip of installed tools — one click puts a program on the canvas. */
