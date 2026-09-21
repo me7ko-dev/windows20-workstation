@@ -166,12 +166,23 @@ export function createCommandBar({ root, desktop, programs, canvas, toast }) {
       })
     })
 
+    commands.push({
+      id: 'paper:random',
+      label: 'Фон: на случаен принцип',
+      hint: 'Ctrl+Shift+B',
+      keywords: ['случаен', 'random', 'фон', 'тапет', 'цвят', 'тема', 'изненадай'],
+      run: () => {
+        const paper = desktop.randomWallpaper()
+        flash(`Фон: ${paper.label}`)
+      }
+    })
+
     for (const paper of desktop.WALLPAPERS) {
       commands.push({
         id: `paper:${paper.id}`,
-        label: `Тапет: ${paper.label}`,
-        hint: 'фон на пространството',
-        keywords: ['тапет', 'wallpaper', 'фон', paper.id, paper.label],
+        label: `Фон: ${paper.label}`,
+        hint: 'цветовете на станцията',
+        keywords: ['тапет', 'wallpaper', 'фон', 'цвят', 'тема', 'theme', paper.id, paper.label],
         run: () => desktop.setWallpaper(paper.id)
       })
     }

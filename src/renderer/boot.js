@@ -12,6 +12,7 @@ const WELCOME = `Добре дошъл в работната станция.
 • Ctrl+Alt+N — нова станция (отделен прозорец)
 • Ctrl+\` — обръща към следващата станция
 • Ctrl+1…9 и Ctrl+Tab — между пространствата
+• Ctrl+Shift+B — друг фон на случаен принцип
 • Ctrl+Shift+Space — говори
 • Ctrl + колелце — мащаб, влачене по фона — местене
 
@@ -101,6 +102,12 @@ async function boot() {
     if (ctrl && e.key.toLowerCase() === 'n') {
       e.preventDefault()
       desktop.openNote()
+      return
+    }
+    if (ctrl && e.shiftKey && e.key.toLowerCase() === 'b') {
+      e.preventDefault()
+      const paper = desktop.randomWallpaper()
+      toast(`Фон: ${paper.label}`, { timeout: 2200 })
       return
     }
     if (ctrl && e.key === 'Tab') {
