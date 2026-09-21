@@ -42,10 +42,57 @@ export function mountWeb(win, { url = '', partition = 'persist:w20', chrome = tr
   const frame = document.createElement('webview')
   frame.setAttribute('partition', partition)
   frame.setAttribute('allowpopups', 'false')
+  // Starts blank rather than empty, so the guest is attached and ready before
+  // any address is asked for — see `navigate`.
+  frame.setAttribute('src', 'about:blank')
   frame.className = 'w20-web-frame'
   view.appendChild(frame)
 
   let current = url
+  let ready = false
+  let queued = null
+
+  function showFail(text) {
+    win.setBadge('грешка', 'error')
+    fail.hidden = false
+    fail.textContent = `Страницата не се отвори: ${text}`
+  }
+
+  /**
+   * What to put in front of the user. A refusal comes back wrapped in the IPC
+   * call that carried it — "Error invoking remote method 'GUEST_VIEW_…'" — and
+   * the only part of that anyone can act on is the code at the end.
+   */
+  function readable(err) {
+    const text = String((err && err.message) || err)
+    const code = /\b(ERR_[A-Z_0-9]+)\b/.exec(text)
+    return code ? code[1] : text
+  }
+
+  /**
+   * Addresses go through `loadURL`, not through `src`.
+   *
+   * Some are refused before a load even begins — a blocked port, a scheme the
+   * guest will not touch — and `src` has nowhere to report that: the refusal
+   * surfaces as an unhandled rejection in the console and the window sits
+   * there looking fine. `loadURL` hands back a promise that can be caught and
+   * shown.
+   */
+  function navigate(target) {
+    if (!ready) {
+      queued = target
+      return
+    }
+    frame.loadURL(target).catch((err) => showFail(readable(err)))
+  }
+
+  frame.addEventListener('dom-ready', () => {
+    ready = true
+    if (queued === null) return
+    const target = queued
+    queued = null
+    navigate(target)
+  })
 
   function go(next) {
     const target = asUrl(next)
@@ -53,7 +100,7 @@ export function mountWeb(win, { url = '', partition = 'persist:w20', chrome = tr
     current = target
     box.value = target
     fail.hidden = true
-    frame.src = target
+    navigate(target)
     if (onChange) onChange(target)
   }
 
@@ -75,7 +122,7 @@ export function mountWeb(win, { url = '', partition = 'persist:w20', chrome = tr
     if (frame.canGoForward && frame.canGoForward()) frame.goForward()
   })
   host.querySelector('[data-role="reload"]').addEventListener('click', () => {
-    if (current) frame.reload()
+    if (current && ready) frame.reload()
   })
   host.querySelector('[data-role="external"]').addEventListener('click', () => {
     if (current) window.w20.openPath(current)
@@ -83,7 +130,7 @@ export function mountWeb(win, { url = '', partition = 'persist:w20', chrome = tr
 
   frame.addEventListener('did-start-loading', () => win.setBadge('зарежда', ''))
   frame.addEventListener('did-stop-loading', () => {
-    win.setBadge('')
+    if (fail.hidden) win.setBadge('')
     try {
       const at = frame.getURL()
       if (at && at !== 'about:blank') {
@@ -101,9 +148,7 @@ export function mountWeb(win, { url = '', partition = 'persist:w20', chrome = tr
   frame.addEventListener('did-fail-load', (e) => {
     // -3 is an aborted load, which every redirect produces.
     if (e.errorCode === -3 || !e.isMainFrame) return
-    win.setBadge('грешка', 'error')
-    fail.hidden = false
-    fail.textContent = `Страницата не се отвори: ${e.errorDescription || e.errorCode}`
+    showFail(e.errorDescription || `код ${e.errorCode}`)
   })
 
   win.body.appendChild(host)
