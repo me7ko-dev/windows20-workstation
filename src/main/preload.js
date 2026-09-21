@@ -15,6 +15,15 @@ contextBridge.exposeInMainWorld('w20', {
   launch: (id, args) => ipcRenderer.invoke('program:launch', { id, args }),
   openPath: (target) => ipcRenderer.invoke('sys:open-path', target),
 
+  files: {
+    list: (dir) => ipcRenderer.invoke('fs:list', dir)
+  },
+
+  editor: {
+    /** Starts VS Code's own web server if it is not up yet, and gives its URL. */
+    serve: (id) => ipcRenderer.invoke('editor:serve', id)
+  },
+
   term: {
     create: (opts) => ipcRenderer.invoke('term:create', opts),
     write: (id, data) => ipcRenderer.send('term:write', { id, data }),

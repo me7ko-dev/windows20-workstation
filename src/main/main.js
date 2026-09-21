@@ -2,6 +2,7 @@
 
 const path = require('path')
 const os = require('os')
+const fsp = require('fs/promises')
 const { app, BrowserWindow, ipcMain, shell, dialog, screen } = require('electron')
 
 const term = require('./pty')
@@ -76,7 +77,11 @@ function createWindow(stationId) {
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: false,
-      spellcheck: false
+      spellcheck: false,
+      // Web windows on the canvas — the browser, and the editor served by
+      // VS Code's own web mode. A <webview> is its own process with no
+      // preload and no node, so a page cannot reach this application.
+      webviewTag: true
     }
   })
 
@@ -93,6 +98,15 @@ function createWindow(stationId) {
     return { action: 'deny' }
   })
   win.webContents.on('will-navigate', (event) => event.preventDefault())
+
+  // Web windows on the canvas. The guest gets no preload and no node, whatever
+  // the renderer asked for — a page on the canvas is a page, not a plugin.
+  win.webContents.on('will-attach-webview', (_event, webPreferences, params) => {
+    delete webPreferences.preload
+    webPreferences.nodeIntegration = false
+    webPreferences.contextIsolation = true
+    params.allowpopups = false
+  })
 
   // The canvas is our own page, but it must not be able to grant itself
   // anything beyond the microphone the voice bar needs.
@@ -127,10 +141,12 @@ app.whenReady().then(() => {
 
 app.on('window-all-closed', () => {
   term.killAll()
+  stopEditors()
   if (process.platform !== 'darwin') app.quit()
 })
 
 app.on('before-quit', () => {
+  stopEditors()
   quitting = true
   term.killAll()
 })
@@ -225,6 +241,127 @@ ipcMain.handle('sys:open-path', async (_e, target) => {
   const error = await shell.openPath(target)
   return error ? { ok: false, error } : { ok: true }
 })
+
+/* ------------------------------------------------------------- the files */
+
+/**
+ * Explorer, on the canvas. Directory listings only — reading a file's contents
+ * is not offered, so a bug in the canvas code cannot turn into a way to read
+ * the disk; opening a file hands it to Windows, exactly as double-clicking it
+ * in Explorer would.
+ */
+ipcMain.handle('fs:list', async (_e, target) => {
+  const dir = typeof target === 'string' && target ? target : os.homedir()
+  try {
+    const found = await fsp.readdir(dir, { withFileTypes: true })
+    const entries = []
+    for (const item of found) {
+      // Dotfiles and system entries are noise in a file picker; the path box
+      // still reaches them by name.
+      if (item.name.startsWith('.')) continue
+      let size = 0
+      let mtime = 0
+      try {
+        const stat = await fsp.stat(path.join(dir, item.name))
+        size = stat.size
+        mtime = stat.mtimeMs
+      } catch {
+        // a link to nowhere, or no permission to stat it — list it anyway
+      }
+      entries.push({ name: item.name, dir: item.isDirectory(), size, mtime })
+    }
+    entries.sort((a, b) => (a.dir === b.dir ? a.name.localeCompare(b.name) : a.dir ? -1 : 1))
+    const parent = path.dirname(dir)
+    return { ok: true, path: dir, parent: parent === dir ? null : parent, entries }
+  } catch (err) {
+    return { ok: false, error: err.message, path: dir }
+  }
+})
+
+/* --------------------------------------------------------- the editor web */
+
+/**
+ * VS Code has a web mode of its own — `code serve-web` runs the real editor
+ * behind a local URL. That is the only supported way to get it *inside* this
+ * window: Windows gives no way to reparent another process's window, so the
+ * alternative is a frame pretending to be an editor.
+ *
+ * The URL it prints carries a connection token, so the server is not open to
+ * anything else running on the machine. One server per program, shared by
+ * every editor window on every station.
+ */
+const editors = new Map() // program id -> { child, url }
+
+function serveWeb(program) {
+  return new Promise((resolve) => {
+    const { spawn } = require('child_process')
+    let child
+    try {
+      child = spawn(program.path, ['serve-web', '--accept-server-license-terms'], {
+        stdio: ['ignore', 'pipe', 'pipe'],
+        windowsHide: true
+      })
+    } catch (err) {
+      resolve({ ok: false, error: err.message })
+      return
+    }
+
+    let settled = false
+    let noise = ''
+    const done = (result) => {
+      if (settled) return
+      settled = true
+      clearTimeout(timer)
+      resolve(result)
+    }
+
+    const read = (chunk) => {
+      const text = String(chunk)
+      noise += text
+      const url = /https?:\/\/(?:localhost|127\.0\.0\.1):\d+\/\S*/.exec(text)
+      if (url) {
+        editors.set(program.id, { child, url: url[0] })
+        done({ ok: true, url: url[0] })
+      }
+    }
+    child.stdout.on('data', read)
+    child.stderr.on('data', read)
+    child.on('error', (err) => done({ ok: false, error: err.message }))
+    child.on('exit', (code) =>
+      done({ ok: false, error: `${program.title} спря (${code})\n${noise.slice(-400)}` })
+    )
+
+    // Long enough for a first run, which downloads the server component.
+    const timer = setTimeout(
+      () => done({ ok: false, error: `${program.title} не отговори навреме\n${noise.slice(-400)}` }),
+      60000
+    )
+  })
+}
+
+ipcMain.handle('editor:serve', async (_e, id) => {
+  const running = editors.get(id)
+  if (running && !running.child.killed) return { ok: true, url: running.url }
+
+  const program = programs().find((p) => p.id === id)
+  if (!program) return { ok: false, error: `няма такава програма: ${id}` }
+  if (!program.installed) return { ok: false, error: `${program.title} не е инсталирана` }
+  if (process.platform !== 'win32' && !program.path) {
+    return { ok: false, error: `${program.title} не е намерена` }
+  }
+  return serveWeb(program)
+})
+
+function stopEditors() {
+  for (const { child } of editors.values()) {
+    try {
+      child.kill()
+    } catch {
+      // already gone
+    }
+  }
+  editors.clear()
+}
 
 ipcMain.handle('program:launch', async (_e, { id, args }) => {
   const program = programs().find((p) => p.id === id)

@@ -3,6 +3,8 @@ import { mountTerminal } from './nodes/terminal.js'
 import { mountNote } from './nodes/note.js'
 import { mountLauncher } from './nodes/launcher.js'
 import { mountSettings } from './nodes/settings.js'
+import { mountWeb } from './nodes/web.js'
+import { mountFiles } from './nodes/files.js'
 
 /**
  * Workspaces hold the layout; this module owns the live windows.
@@ -117,7 +119,9 @@ const DEFAULT_SIZES = {
   terminal: { width: 720, height: 460 },
   note: { width: 340, height: 280 },
   launcher: { width: 320, height: 300 },
-  settings: { width: 380, height: 420 }
+  settings: { width: 380, height: 420 },
+  web: { width: 960, height: 640 },
+  files: { width: 400, height: 480 }
 }
 
 /** How far outside the viewport a window is still worth painting. */
@@ -196,7 +200,9 @@ export function createDesktop({ plane, canvas, programs, home }) {
       // reopening a dead shell that looks alive is worse than an empty canvas.
       const state = snapshot()
       for (const ws of state.workspaces) {
-        ws.nodes = ws.nodes.filter((n) => n.type !== 'terminal')
+        // Terminals cannot come back, and an editor window would start a
+        // server at boot that nobody asked for this time round.
+        ws.nodes = ws.nodes.filter((n) => n.type !== 'terminal' && !(n.type === 'web' && n.programId))
       }
       window.w20.state.save(state)
     }, 400)
@@ -236,6 +242,27 @@ export function createDesktop({ plane, canvas, programs, home }) {
       })
     } else if (node.type === 'settings') {
       content = mountSettings(win, {})
+    } else if (node.type === 'web') {
+      content = mountWeb(win, {
+        // An editor window has no address bar: its address is the server's,
+        // and typing over it would only break the editor.
+        url: node.programId ? '' : node.url || '',
+        chrome: !node.programId,
+        onChange: (at) => {
+          node.url = at
+          scheduleSave()
+        }
+      })
+      if (node.programId) startEditor(node, win, content)
+    } else if (node.type === 'files') {
+      content = mountFiles(win, {
+        cwd: node.cwd || activeWorkspace().cwd,
+        onOpenTerminal: (dir) => openTerminal({ cwd: dir, title: dir.split(/[\\/]/).pop() || 'Терминал' }),
+        onChange: (dir) => {
+          node.cwd = dir
+          scheduleSave()
+        }
+      })
     } else if (node.type === 'launcher') {
       const program = programs.find((p) => p.id === node.programId)
       content = program ? mountLauncher(win, { program }) : null
@@ -618,13 +645,53 @@ export function createDesktop({ plane, canvas, programs, home }) {
     })
   }
 
+  /**
+   * VS Code's own web mode takes a moment to come up — and on a first run it
+   * downloads the server component — so the window says what it is doing
+   * rather than sitting blank.
+   */
+  function startEditor(node, win, content) {
+    win.setBadge('стартира…', '')
+    content.setNotice('Стартирам редактора… при първо пускане това отнема малко.')
+    window.w20.editor.serve(node.programId).then((result) => {
+      if (result.ok) {
+        win.setBadge('')
+        content.setNotice('')
+        content.load(result.url)
+        return
+      }
+      win.setBadge('грешка', 'error')
+      content.setNotice(
+        `${result.error}\n\nТова издание може да няма serve-web. ` +
+          'Лентата (Ctrl+K) може да го пусне като прозорец на Windows.'
+      )
+    })
+  }
+
+  function openWeb(url = '') {
+    return addNode({ type: 'web', title: url ? url : 'Браузър', url, accent: '#4caf50' })
+  }
+
+  function openFiles(dir) {
+    return addNode({ type: 'files', title: 'Файлове', cwd: dir || activeWorkspace().cwd, accent: '#ffd166' })
+  }
+
+  function openEditor(program) {
+    return addNode({ type: 'web', title: program.title, programId: program.id, accent: program.accent })
+  }
+
   function openProgram(program, { cwd } = {}) {
+    if (program.kind === 'web') return openWeb()
+    if (program.kind === 'files') return openFiles(cwd || activeWorkspace().cwd)
+    if (program.kind === 'editor') return openEditor(program)
     if (program.kind === 'external') {
       return addNode({ type: 'launcher', title: program.title, programId: program.id, accent: program.accent })
     }
     return openTerminal({
       title: program.title,
-      shell: program.path || program.command,
+      // Windows Terminal is a home for shells, which is what this station is.
+      // Its button opens a plain terminal here rather than a second window.
+      shell: program.useDefaultShell ? undefined : program.path || program.command,
       cwd: cwd || activeWorkspace().cwd,
       accent: program.accent
     })
@@ -789,6 +856,8 @@ export function createDesktop({ plane, canvas, programs, home }) {
     addNode,
     openTerminal,
     openProgram,
+    openWeb,
+    openFiles,
     openNote,
     openSettings,
     closeNode,

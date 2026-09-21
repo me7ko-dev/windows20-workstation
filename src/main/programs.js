@@ -8,14 +8,20 @@ const { execFileSync } = require('child_process')
 /**
  * What's actually installed on this machine.
  *
- * Two kinds of program live side by side here, and the difference matters:
+ * Every entry here opens *inside* the station. Windows still gives no way to
+ * reparent another process's window into ours, so where a GUI app cannot be
+ * embedded the station runs the same thing its own way:
  *
- *  - `kind: 'agent'` / `'shell'` — a CLI we run *inside* a canvas window
- *    through ConPTY, so the window really is the running program.
- *  - `kind: 'external'` — a GUI app (VS Code, Cursor, Explorer). Windows has
- *    no supported way to reparent another process's window into ours, so
- *    these launch as their own top-level windows. Pretending otherwise would
- *    just produce an empty frame.
+ *  - `kind: 'agent'` / `'shell'` — a CLI in a canvas window through ConPTY.
+ *    The window really is the running program.
+ *  - `kind: 'editor'` — VS Code and its relatives, through `serve-web`: their
+ *    own web mode, in a canvas window. The real editor, not a mock-up.
+ *  - `kind: 'web'` — a browser window on the canvas. Same engine as Chrome,
+ *    because it is Chromium.
+ *  - `kind: 'files'` — the file browser on the canvas, with the one thing
+ *    Explorer cannot do: a terminal opened where you are looking.
+ *  - `kind: 'external'` — what is genuinely left: a launch card, honest about
+ *    opening its own window.
  */
 
 const HOME = os.homedir()
@@ -92,58 +98,61 @@ const CATALOG = [
     id: 'vscode',
     title: 'VS Code',
     icon: '⧉',
-    kind: 'external',
+    kind: 'editor',
     command: 'code.cmd',
     accent: '#2f9fe8',
     candidates: [
-      path.join(LOCAL, 'Programs', 'Microsoft VS Code', 'Code.exe'),
-      path.join(PROGRAMS, 'Microsoft VS Code', 'Code.exe')
+      path.join(LOCAL, 'Programs', 'Microsoft VS Code', 'bin', 'code.cmd'),
+      path.join(PROGRAMS, 'Microsoft VS Code', 'bin', 'code.cmd')
     ],
-    description: 'Отваря се като собствен прозорец на Windows.'
+    description: 'Истинският редактор, в прозорец на платното (code serve-web).'
   },
   {
     id: 'cursor',
     title: 'Cursor',
     icon: '▲',
-    kind: 'external',
+    kind: 'editor',
     command: 'cursor.cmd',
     accent: '#eef1f7',
     candidates: [
-      path.join(LOCAL, 'Programs', 'cursor', 'Cursor.exe'),
-      path.join(PROGRAMS, 'Cursor', 'Cursor.exe')
+      path.join(LOCAL, 'Programs', 'cursor', 'resources', 'app', 'bin', 'cursor.cmd'),
+      path.join(PROGRAMS, 'Cursor', 'resources', 'app', 'bin', 'cursor.cmd')
     ],
-    description: 'Отваря се като собствен прозорец на Windows.'
+    description: 'Като VS Code — ако изданието му носи serve-web.'
   },
   {
     id: 'windows-terminal',
     title: 'Windows Terminal',
     icon: '▭',
-    kind: 'external',
+    kind: 'shell',
     command: 'wt.exe',
+    useDefaultShell: true,
     accent: '#4cc2ff',
-    description: 'Системният терминал.'
+    description: 'Отваря обикновен терминал тук — станцията вече е терминален дом.'
   },
   {
-    id: 'explorer',
-    title: 'Explorer',
+    id: 'files',
+    title: 'Файлове',
     icon: '🗂',
-    kind: 'external',
+    kind: 'files',
+    native: 'Explorer',
     command: 'explorer.exe',
     accent: '#ffd166',
-    description: 'Файловият мениджър на Windows.'
+    description: 'Файловете, на платното — с терминал в папката, която гледаш.'
   },
   {
-    id: 'chrome',
-    title: 'Chrome',
+    id: 'browser',
+    title: 'Браузър',
     icon: '◎',
-    kind: 'external',
+    kind: 'web',
+    native: 'Chrome',
     command: 'chrome.exe',
     accent: '#4caf50',
     candidates: [
       path.join(PROGRAMS, 'Google', 'Chrome', 'Application', 'chrome.exe'),
       path.join(PROGRAMS_X86, 'Google', 'Chrome', 'Application', 'chrome.exe')
     ],
-    description: 'Истинският Chrome, като отделен прозорец.'
+    description: 'Браузър в прозорец на платното — същият Chromium.'
   }
 ]
 
@@ -165,12 +174,24 @@ function resolve(program) {
   return onPath(program.command)
 }
 
-/** The catalog, each entry marked with whether it's actually on this machine. */
+/**
+ * The catalog, each entry marked with whether it's actually on this machine.
+ *
+ * The browser and the file window are ours — they are always available, and
+ * their `path` says only whether the Windows program they stand in for is also
+ * here, for the command that opens the native one.
+ */
 function detect() {
   return CATALOG.map((program) => {
     const resolved = resolve(program)
     const { candidates, ...rest } = program
-    return { ...rest, path: resolved, installed: Boolean(resolved) }
+    const ours = program.kind === 'web' || program.kind === 'files'
+    return {
+      ...rest,
+      path: resolved,
+      installed: ours ? true : Boolean(resolved),
+      nativeInstalled: Boolean(resolved)
+    }
   })
 }
 

@@ -66,15 +66,16 @@ export function createMinimap({ root, desktop, canvas, viewport }) {
     }
   }
 
-  function accentOf(node) {
-    return node.accent || getComputedStyle(document.body).getPropertyValue('--accent').trim() || '#5ee0ff'
-  }
-
   function draw() {
     if (!visible) return
     const nodes = desktop.activeWorkspace().nodes
     fit = project(extent())
     ctx.clearRect(0, 0, WIDTH, HEIGHT)
+
+    // Read once, not once per window. Asking for a computed style inside the
+    // loop meant three hundred style recalculations on every frame of a pan —
+    // the map was cheap to draw and expensive to ask about.
+    const fallback = getComputedStyle(document.body).getPropertyValue('--accent').trim() || '#5ee0ff'
 
     for (const node of nodes) {
       const x = node.x * fit.scale + fit.ox
@@ -82,7 +83,7 @@ export function createMinimap({ root, desktop, canvas, viewport }) {
       // Never smaller than a dot: a window shrunk to nothing is a window lost.
       const w = Math.max(3, node.width * fit.scale)
       const h = Math.max(3, node.height * fit.scale)
-      ctx.fillStyle = accentOf(node)
+      ctx.fillStyle = node.accent || fallback
       ctx.globalAlpha = node.type === 'terminal' ? 0.85 : 0.5
       ctx.fillRect(x, y, w, h)
     }

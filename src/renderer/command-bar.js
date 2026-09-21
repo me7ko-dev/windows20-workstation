@@ -53,14 +53,41 @@ export function createCommandBar({ root, desktop, programs, canvas, toast, minim
 
   /* ------------------------------------------------------- the verb table */
 
+  const WHERE = {
+    agent: 'терминал на платното',
+    shell: 'терминал на платното',
+    editor: 'редакторът, в прозорец тук',
+    web: 'браузър на платното',
+    files: 'файлов прозорец тук',
+    external: 'собствен прозорец на Windows'
+  }
+
   function programCommands() {
-    return programs.map((program) => ({
+    const commands = programs.map((program) => ({
       id: `open:${program.id}`,
       label: program.installed ? `Отвори ${program.title}` : `${program.title} (не е инсталирана)`,
-      hint: program.kind === 'external' ? 'външен прозорец' : 'терминал на платното',
-      keywords: [program.id, program.title, program.command],
+      hint: WHERE[program.kind] || '',
+      keywords: [program.id, program.title, program.command, program.native],
       run: () => desktop.openProgram(program)
     }))
+
+    // Where the station stands in for a Windows program, the real one is still
+    // one command away — the canvas version is the default, not the only way.
+    for (const program of programs) {
+      if (!program.native || !program.nativeInstalled) continue
+      commands.push({
+        id: `native:${program.id}`,
+        label: `Пусни ${program.native} в Windows`,
+        hint: 'като собствен прозорец',
+        keywords: [program.native, 'windows', 'външен', 'native', program.id],
+        run: async () => {
+          const result = await window.w20.launch(program.id, [])
+          flash(result.ok ? `${program.native} е пуснат` : result.error)
+        }
+      })
+    }
+
+    return commands
   }
 
   function staticCommands() {
@@ -71,6 +98,20 @@ export function createCommandBar({ root, desktop, programs, canvas, toast, minim
         hint: 'ConPTY в прозорец',
         keywords: ['терминал', 'terminal', 'shell', 'нов'],
         run: () => desktop.openTerminal()
+      },
+      {
+        id: 'new:web',
+        label: 'Нов браузър',
+        hint: 'страница в прозорец на платното',
+        keywords: ['браузър', 'browser', 'интернет', 'уеб', 'web', 'страница', 'chrome'],
+        run: () => desktop.openWeb()
+      },
+      {
+        id: 'new:files',
+        label: 'Нов файлов прозорец',
+        hint: 'папката на пространството',
+        keywords: ['файлове', 'files', 'папка', 'explorer', 'директория'],
+        run: () => desktop.openFiles()
       },
       {
         id: 'new:note',
@@ -256,19 +297,49 @@ export function createCommandBar({ root, desktop, programs, canvas, toast, minim
     return [...programCommands(), ...staticCommands()]
   }
 
-  /** Windows loves a path; if that's what was typed, offer to open it. */
-  function pathCommand(query) {
-    const looksLikePath = /^[a-zA-Z]:\\/.test(query) || query.startsWith('\\\\') || /^https?:\/\//.test(query)
-    if (!looksLikePath) return null
-    return {
-      id: 'sys:open',
-      label: `Отвори ${query}`,
-      hint: 'в Windows',
-      run: async () => {
-        const result = await window.w20.openPath(query)
-        if (!result.ok) flash(result.error)
-      }
+  /**
+   * Windows loves a path; if that's what was typed, offer to open it. A web
+   * address opens here first — the whole point is that it need not leave.
+   */
+  function pathCommands(query) {
+    if (/^https?:\/\//.test(query)) {
+      return [
+        {
+          id: 'web:open',
+          label: `Отвори ${query} тук`,
+          hint: 'прозорец на платното',
+          run: () => desktop.openWeb(query)
+        },
+        {
+          id: 'sys:open',
+          label: `Отвори ${query} в Windows`,
+          hint: 'браузъра по подразбиране',
+          run: async () => {
+            const result = await window.w20.openPath(query)
+            if (!result.ok) flash(result.error)
+          }
+        }
+      ]
     }
+    const looksLikePath = /^[a-zA-Z]:\\/.test(query) || query.startsWith('\\\\')
+    if (!looksLikePath) return []
+    return [
+      {
+        id: 'files:open',
+        label: `Отвори ${query} тук`,
+        hint: 'файлов прозорец на платното',
+        run: () => desktop.openFiles(query)
+      },
+      {
+        id: 'sys:open',
+        label: `Отвори ${query} в Windows`,
+        hint: 'с програмата по подразбиране',
+        run: async () => {
+          const result = await window.w20.openPath(query)
+          if (!result.ok) flash(result.error)
+        }
+      }
+    ]
   }
 
   function score(command, query) {
@@ -293,7 +364,7 @@ export function createCommandBar({ root, desktop, programs, canvas, toast, minim
 
   function refresh() {
     const query = input.value.trim()
-    const direct = pathCommand(query)
+    const direct = pathCommands(query)
 
     const found = allCommands()
       .map((command) => ({ command, rank: score(command, query) }))
@@ -311,7 +382,7 @@ export function createCommandBar({ root, desktop, programs, canvas, toast, minim
         }))
       : []
 
-    matches = [...(direct ? [direct] : []), ...nodeHits, ...found]
+    matches = [...direct, ...nodeHits, ...found]
     cursor = 0
     draw()
   }

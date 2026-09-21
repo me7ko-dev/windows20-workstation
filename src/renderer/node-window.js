@@ -33,11 +33,25 @@ export function createNodeWindow({ node, canvas, plane, onChange, onClose, onFoc
   let offscreen = false
 
   function place() {
-    el.style.transform = `translate(${node.x}px, ${node.y}px)`
+    el.style.transform = `translate3d(${node.x}px, ${node.y}px, 0)`
     el.style.width = `${node.width}px`
     el.style.height = `${node.height}px`
   }
   place()
+
+  /**
+   * Dragging writes the box at most once a frame. A 1000 Hz mouse reports
+   * seven moves between two frames of a 144 Hz screen, and laying the window
+   * out for each of them is work nobody ever sees.
+   */
+  let placeFrame = 0
+  function placeSoon() {
+    if (placeFrame) return
+    placeFrame = requestAnimationFrame(() => {
+      placeFrame = 0
+      place()
+    })
+  }
 
   function raise() {
     node.z = ++topZ
@@ -69,15 +83,20 @@ export function createNodeWindow({ node, canvas, plane, onChange, onClose, onFoc
 
   barEl.addEventListener('pointermove', (e) => {
     if (!drag || drag.id !== e.pointerId) return
+    // Only the latest position matters for where the window ends up, but the
+    // coalesced list is what the browser actually saw.
+    const steps = e.getCoalescedEvents ? e.getCoalescedEvents() : []
+    const last = steps.length ? steps[steps.length - 1] : e
     // Divide by zoom: a pixel of cursor travel is less canvas travel when zoomed in.
-    node.x = drag.originX + (e.clientX - drag.startX) / canvas.view.zoom
-    node.y = drag.originY + (e.clientY - drag.startY) / canvas.view.zoom
-    place()
+    node.x = drag.originX + (last.clientX - drag.startX) / canvas.view.zoom
+    node.y = drag.originY + (last.clientY - drag.startY) / canvas.view.zoom
+    placeSoon()
   })
 
   function endDrag(e) {
     if (!drag || drag.id !== e.pointerId) return
     drag = null
+    place()
     el.classList.remove('is-dragging')
     try {
       barEl.releasePointerCapture(e.pointerId)
@@ -114,7 +133,7 @@ export function createNodeWindow({ node, canvas, plane, onChange, onClose, onFoc
     if (!resize || resize.id !== e.pointerId) return
     node.width = Math.max(280, resize.w + (e.clientX - resize.startX) / canvas.view.zoom)
     node.height = Math.max(180, resize.h + (e.clientY - resize.startY) / canvas.view.zoom)
-    place()
+    placeSoon()
     el.dispatchEvent(new CustomEvent('w20:resized', { bubbles: false }))
   })
 

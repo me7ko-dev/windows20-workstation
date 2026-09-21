@@ -161,13 +161,16 @@ body.is-booting .w20-shell {
 
 /* The dot grid is painted on the viewport, not the plane, so it never has to
    be re-rasterised at a new scale while panning. */
+/* Only one grid cell larger than the viewport: it repeats, so it never has to
+   be bigger than what is on screen plus the cell it is offset by. The old
+   version was five screens wide in each direction and repainted whole. */
 .w20-plane-bg {
   position: absolute;
-  inset: -200vh -200vw;
+  inset: -220px;
   background-image: radial-gradient(circle, var(--grid-color, rgba(255, 255, 255, 0.07)) 1px, transparent 1px);
-  background-size: var(--grid-size, 32px) var(--grid-size, 32px);
-  background-position: var(--grid-x, 0) var(--grid-y, 0);
+  background-size: 32px 32px;
   pointer-events: none;
+  will-change: transform;
 }
 
 .w20-plane {
@@ -180,6 +183,27 @@ body.is-booting .w20-shell {
 
 .w20-plane-layer[hidden] {
   display: none;
+}
+
+/* A jump across the canvas — fitting everything, a click on the map, revealing
+   a window. The view itself moves at once, because everything that asks "does
+   it fit now?" needs a truthful answer; only the picture glides, and it glides
+   on the compositor rather than through a frame loop. */
+.w20-plane.is-jumping {
+  transition: transform 260ms cubic-bezier(0.22, 0.61, 0.36, 1);
+}
+
+/* The dot grid cannot glide with it — it is painted on the viewport, not the
+   plane — so it steps out of the way instead of sliding the wrong distance. */
+.w20-viewport.is-jumping .w20-plane-bg {
+  opacity: 0;
+  transition: opacity 110ms ease;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .w20-plane.is-jumping {
+    transition: none;
+  }
 }
 
 /* ------------------------------------------------------------- windows */
@@ -544,6 +568,162 @@ body.is-booting .w20-shell {
   border-radius: 5px;
   padding: 2px 6px;
   flex-shrink: 0;
+}
+
+/* ------------------------------------------------------- web & files */
+
+.w20-web,
+.w20-files {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+
+.w20-web-bar,
+.w20-files-bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.w20-web-btn,
+.w20-files-btn {
+  flex-shrink: 0;
+  min-width: 26px;
+  height: 26px;
+  padding: 0 7px;
+  border-radius: 7px;
+  border: 1px solid var(--border);
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--text-muted);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.w20-web-btn:hover,
+.w20-files-btn:hover {
+  color: var(--text);
+  border-color: var(--border-strong);
+}
+
+.w20-web-url,
+.w20-files-path {
+  flex: 1;
+  min-width: 0;
+  height: 26px;
+  padding: 0 9px;
+  border-radius: 7px;
+  border: 1px solid var(--border);
+  background: rgba(0, 0, 0, 0.3);
+  color: var(--text);
+  font-family: inherit;
+  font-size: 12px;
+  outline: none;
+  user-select: text;
+}
+
+.w20-web-url:focus,
+.w20-files-path:focus {
+  border-color: var(--node-accent);
+}
+
+.w20-web-view {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  background: #fff;
+}
+
+.w20-web-frame {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  border: 0;
+}
+
+/* A page inside a window must not eat the drag that moves the window, and a
+   guest process cannot be told to ignore pointers — so while the canvas is
+   being moved, nothing reaches the page. */
+.w20-viewport.is-moving .w20-web-frame,
+.w20-window.is-dragging .w20-web-frame {
+  pointer-events: none;
+}
+
+.w20-web-fail {
+  padding: 12px 14px;
+  margin: 0;
+  border-top: 1px solid var(--border);
+  background: var(--surface-strong);
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  user-select: text;
+}
+
+.w20-files-list {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 4px;
+}
+
+.w20-files-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 5px 8px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--text-muted);
+  font-family: inherit;
+  font-size: 12.5px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.w20-files-row:hover {
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--text);
+}
+
+.w20-files-row.is-dir {
+  color: var(--text);
+}
+
+.w20-files-icon {
+  width: 12px;
+  flex-shrink: 0;
+  color: var(--node-accent);
+}
+
+.w20-files-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.w20-files-size {
+  flex-shrink: 0;
+  font-size: 11px;
+  opacity: 0.6;
+  font-variant-numeric: tabular-nums;
+}
+
+.w20-files-empty {
+  padding: 14px;
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 12px;
 }
 
 /* ---------------------------------------------------------------- map */
