@@ -1,0 +1,35 @@
+{
+  "name": "windows20-workstation",
+  "productName": "Windows 20 Workstation",
+  "version": "0.1.0",
+  "private": true,
+  "description": "An infinite canvas desktop for Windows where agents, terminals and tools live as windows.",
+  "main": "src/main/main.js",
+  "scripts": {
+    "start": "electron .",
+    "rebuild": "electron-rebuild -f -w node-pty",
+    "dist": "electron-builder --win"
+  },
+  "dependencies": {
+    "@xterm/addon-fit": "^0.10.0",
+    "@xterm/xterm": "^5.5.0",
+    "node-pty": "^1.0.0"
+  },
+  "devDependencies": {
+    "@electron/rebuild": "^3.6.0",
+    "electron": "^33.0.0",
+    "electron-builder": "^25.1.8"
+  },
+  "build": {
+    "appId": "dev.me7ko.windows20.workstation",
+    "win": {
+      "target": [
+        "nsis"
+      ]
+    },
+    "files": [
+      "src/**/*",
+      "node_modules/**/*"
+    ]
+  }
+}
