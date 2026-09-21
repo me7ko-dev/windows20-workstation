@@ -118,6 +118,20 @@ export function createCommandBar({ root, desktop, programs, canvas, toast, minim
         }
       },
       {
+        id: 'view:expand',
+        label: desktop.focusedNode()
+          ? `Разгъни „${desktop.focusedNode().title}“ върху съседните`
+          : 'Разгъни избрания прозорец',
+        hint: 'Ctrl+Shift+E — или двоен клик по заглавието',
+        keywords: ['разгъни', 'уголеми', 'голям', 'expand', 'максимизирай', 'свий', 'побери'],
+        run: () => {
+          const grown = desktop.expand()
+          if (!grown) flash('Нищо не е избрано — щракни върху прозорец')
+          else if (!grown.expanded) flash(`„${grown.title}“ се сви обратно`)
+          else flash(grown.covered ? `Побра ${grown.covered} съседни` : 'Разгънат — няма близки прозорци')
+        }
+      },
+      {
         id: 'view:tidy',
         label: 'Подреди прозорците',
         hint: 'Ctrl+Shift+G — в мрежа, без преоразмеряване',

@@ -6,7 +6,7 @@
 
 let topZ = 10
 
-export function createNodeWindow({ node, canvas, plane, onChange, onClose, onFocus }) {
+export function createNodeWindow({ node, canvas, plane, onChange, onClose, onFocus, onExpand }) {
   const el = document.createElement('section')
   el.className = `w20-window w20-window--${node.type}`
   el.dataset.nodeId = node.id
@@ -56,7 +56,13 @@ export function createNodeWindow({ node, canvas, plane, onChange, onClose, onFoc
   barEl.addEventListener('pointerdown', (e) => {
     if (e.target.dataset.role === 'close') return
     drag = { id: e.pointerId, startX: e.clientX, startY: e.clientY, originX: node.x, originY: node.y }
-    barEl.setPointerCapture(e.pointerId)
+    try {
+      barEl.setPointerCapture(e.pointerId)
+    } catch {
+      // Capture is only what keeps the drag alive past the window's edge. If
+      // the browser will not give it, the drag still works — it just ends when
+      // the pointer leaves — and throwing here would abandon it entirely.
+    }
     el.classList.add('is-dragging')
     e.stopPropagation()
   })
@@ -83,12 +89,24 @@ export function createNodeWindow({ node, canvas, plane, onChange, onClose, onFoc
   barEl.addEventListener('pointerup', endDrag)
   barEl.addEventListener('pointercancel', endDrag)
 
+  // The old maximise gesture. On the title bar, where it cannot be confused
+  // with a double-click inside a terminal that is selecting a word.
+  barEl.addEventListener('dblclick', (e) => {
+    if (e.target.dataset.role === 'close') return
+    e.stopPropagation()
+    if (onExpand) onExpand(node)
+  })
+
   /* ---------------------------------------------------------- resizing */
 
   let resize = null
   gripEl.addEventListener('pointerdown', (e) => {
     resize = { id: e.pointerId, startX: e.clientX, startY: e.clientY, w: node.width, h: node.height }
-    gripEl.setPointerCapture(e.pointerId)
+    try {
+      gripEl.setPointerCapture(e.pointerId)
+    } catch {
+      // as above: a resize without capture is better than no resize
+    }
     e.stopPropagation()
   })
 
@@ -129,6 +147,12 @@ export function createNodeWindow({ node, canvas, plane, onChange, onClose, onFoc
     raise,
     /** Re-read x/y/width/height from the model — used after a tidy. */
     place,
+    /**
+     * Tell the contents the box changed. Only for sizes the desktop set: a
+     * terminal measures its columns from the box and has to be told, while the
+     * grip already says so on every pointer move.
+     */
+    remeasure: () => el.dispatchEvent(new CustomEvent('w20:resized', { bubbles: false })),
     /**
      * Glide to a new position instead of teleporting. Only for moves the user
      * did not make by hand: a dragged window writes its transform every frame,

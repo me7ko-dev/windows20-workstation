@@ -17,6 +17,8 @@ const WELCOME = `Добре дошъл в работната станция.
 • Ctrl+M — картата на платното долу вдясно
 • Ctrl+Shift+0 — побери всичко в екрана
 • Ctrl+Shift+G — подреди прозорците
+• Ctrl+Shift+E или двоен клик по заглавието —
+  разгъва прозореца върху близките до него
 • Ctrl+W — затвори избрания прозорец
 • Ctrl+Shift+Space — говори
 • Ctrl + колелце — мащаб, влачене по фона — местене
@@ -88,6 +90,21 @@ async function boot() {
       e.preventDefault()
       const closed = desktop.closeFocused()
       if (!closed) toast('Нищо не е избрано — щракни върху прозорец', { timeout: 2200 })
+      return
+    }
+    // Grow the selected window over the small ones beside it, and back.
+    if (ctrl && e.shiftKey && e.key.toLowerCase() === 'e') {
+      e.preventDefault()
+      const grown = desktop.expand()
+      if (!grown) toast('Нищо не е избрано — щракни върху прозорец', { timeout: 2200 })
+      else if (!grown.expanded) toast(`„${grown.title}“ се сви обратно`, { timeout: 2000 })
+      else
+        toast(
+          grown.covered
+            ? `„${grown.title}“ побра ${grown.covered} ${grown.covered === 1 ? 'съседен прозорец' : 'съседни прозореца'}`
+            : `„${grown.title}“ е разгънат — няма близки прозорци`,
+          { timeout: 2600 }
+        )
       return
     }
     if (ctrl && e.key.toLowerCase() === 'm') {

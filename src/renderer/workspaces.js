@@ -219,7 +219,8 @@ export function createDesktop({ plane, canvas, programs, home }) {
       // Dictation needs to know which terminal the words belong to.
       onFocus: (n) => {
         focusedId = n.id
-      }
+      },
+      onExpand: (n) => expand(n.id)
     })
 
     let content = null
@@ -405,6 +406,125 @@ export function createDesktop({ plane, canvas, programs, home }) {
     }
   }
 
+  /* --------------------------------------------------------- expanding */
+
+  /** How many neighbours an expanded window should grow to cover. */
+  const EXPAND_HOLDS = 4
+  /** How far past its own edges a window counts another one as "close by". */
+  const NEAR_REACH = 1.2
+  /** However near the neighbours are, never more than this many times its size. */
+  const EXPAND_CAP = 3
+
+  /** The nearest windows within reach, closest first. */
+  function neighbours(node, ws, limit) {
+    const mx = node.width * NEAR_REACH
+    const my = node.height * NEAR_REACH
+    const zone = {
+      left: node.x - mx,
+      top: node.y - my,
+      right: node.x + node.width + mx,
+      bottom: node.y + node.height + my
+    }
+    const cx = node.x + node.width / 2
+    const cy = node.y + node.height / 2
+    return ws.nodes
+      .filter(
+        (n) =>
+          n.id !== node.id &&
+          n.x < zone.right &&
+          n.x + n.width > zone.left &&
+          n.y < zone.bottom &&
+          n.y + n.height > zone.top
+      )
+      .map((n) => ({ n, d: Math.hypot(n.x + n.width / 2 - cx, n.y + n.height / 2 - cy) }))
+      .sort((a, b) => a.d - b.d)
+      .slice(0, limit)
+      .map((e) => e.n)
+  }
+
+  /**
+   * Grow the selected window until it holds the small ones around it — up to
+   * four — and shrink it back on the second call.
+   *
+   * The neighbours are not moved. They stay exactly where they were and the
+   * expanded window simply covers them, so nothing has to be put back if the
+   * user never collapses it: the layout underneath is untouched.
+   *
+   * With nothing close by there is no cluster to cover, so it grows to a plain
+   * two-by-two instead of guessing at a size.
+   */
+  function expand(id = focusedId) {
+    const found = id ? nodeById(id) : null
+    if (!found) return null
+    const { node, ws } = found
+
+    const apply = ({ follow = false } = {}) => {
+      const entry = live.get(node.id)
+      if (entry) {
+        entry.win.settle()
+        entry.win.place()
+        entry.win.remeasure()
+        entry.win.raise()
+      }
+      // A window that grew past the edge of the screen is not much use grown.
+      // The view only moves when it has to, though — snapping the canvas about
+      // on an expansion that was already fully visible would be worse.
+      if (follow) {
+        const seen = canvas.visibleRect(0)
+        const outside =
+          node.x < seen.left ||
+          node.y < seen.top ||
+          node.x + node.width > seen.right ||
+          node.y + node.height > seen.bottom
+        if (outside) {
+          canvas.focus({ x: node.x, y: node.y, width: node.width, height: node.height }, { fit: true, padding: 70 })
+        }
+      }
+      scheduleCull()
+      changed()
+    }
+
+    if (node.folded) {
+      Object.assign(node, node.folded)
+      delete node.folded
+      apply()
+      return { expanded: false, title: node.title, covered: 0 }
+    }
+
+    node.folded = { x: node.x, y: node.y, width: node.width, height: node.height }
+    const close = neighbours(node, ws, EXPAND_HOLDS)
+
+    let left = node.x
+    let top = node.y
+    let right = node.x + node.width
+    let bottom = node.y + node.height
+    for (const n of close) {
+      left = Math.min(left, n.x)
+      top = Math.min(top, n.y)
+      right = Math.max(right, n.x + n.width)
+      bottom = Math.max(bottom, n.y + n.height)
+    }
+
+    // Always at least double, never past the cap — one enormous neighbour
+    // should not turn this into a window the size of the workspace.
+    const width = Math.min(Math.max(right - left, node.width * 2), node.width * EXPAND_CAP)
+    const height = Math.min(Math.max(bottom - top, node.height * 2), node.height * EXPAND_CAP)
+
+    // Centre on the cluster, but never so far that it stops covering the
+    // ground it was standing on.
+    let x = left + (right - left - width) / 2
+    let y = top + (bottom - top - height) / 2
+    x = Math.max(node.x + node.width - width, Math.min(x, node.x))
+    y = Math.max(node.y + node.height - height, Math.min(y, node.y))
+
+    node.x = Math.round(x)
+    node.y = Math.round(y)
+    node.width = Math.round(width)
+    node.height = Math.round(height)
+    apply({ follow: true })
+    return { expanded: true, title: node.title, covered: close.length }
+  }
+
   const TIDY_GAP = 36
 
   /**
@@ -430,6 +550,12 @@ export function createDesktop({ plane, canvas, programs, home }) {
     for (const node of ordered) {
       node.x = Math.round(x)
       node.y = Math.round(y)
+      // An expanded window keeps its size here, so its folded size is still
+      // worth keeping — but it now belongs to this slot, not the old spot.
+      if (node.folded) {
+        node.folded.x = node.x
+        node.folded.y = node.y
+      }
       rowHeight = Math.max(rowHeight, node.height)
       x += columnWidth
       column += 1
@@ -668,6 +794,7 @@ export function createDesktop({ plane, canvas, programs, home }) {
     closeNode,
     closeFocused,
     focusedNode,
+    expand,
     moveNodeTo,
     bounds,
     fitAll,
