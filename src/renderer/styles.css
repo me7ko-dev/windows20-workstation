@@ -119,6 +119,32 @@ body.is-booting .w20-shell {
   backdrop-filter: blur(18px);
 }
 
+/* Out of view: keep the box — a terminal measures its columns from it — but
+   pay nothing to paint or composite it. */
+.w20-window.is-offscreen {
+  visibility: hidden;
+  content-visibility: hidden;
+}
+
+/* Blur is by far the most expensive thing a window draws, and it is invisible
+   while the thing behind it is sliding. Dropped until the canvas settles. */
+.w20-viewport.is-moving .w20-window,
+.w20-window.is-dragging {
+  backdrop-filter: none;
+}
+
+/* Zoomed far out the contents are a smear of pixels nobody can read, so they
+   are not drawn — what is left is a map of titled, colour-coded frames.
+   `visibility` and not `display`, so a terminal keeps the box it measured. */
+.w20-viewport.is-far .w20-window {
+  backdrop-filter: none;
+}
+
+.w20-viewport.is-far .w20-window-body,
+.w20-viewport.is-far .w20-window-grip {
+  visibility: hidden;
+}
+
 .w20-window.is-dragging {
   box-shadow: 0 34px 90px rgba(0, 0, 0, 0.65);
   border-color: var(--node-accent);
@@ -423,18 +449,58 @@ body.is-booting .w20-shell {
   flex-shrink: 0;
 }
 
+.w20-bar-load {
+  padding-left: 10px;
+  margin-left: 2px;
+  border-left: 1px solid var(--border);
+  color: var(--text-muted);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  flex-shrink: 0;
+  cursor: default;
+}
+
+/* The strip scrolls rather than growing, so any number of workspaces still
+   leaves the input its width. */
 .w20-bar-tabs {
   display: flex;
   gap: 3px;
   padding-left: 8px;
   margin-left: 2px;
   border-left: 1px solid var(--border);
+  max-width: 220px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.w20-bar-tabs::-webkit-scrollbar {
+  display: none;
+}
+
+.w20-bar-add {
+  width: 26px;
+  height: 26px;
   flex-shrink: 0;
+  border: 1px dashed var(--border-strong);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.w20-bar-add:hover {
+  color: var(--text);
+  border-color: var(--accent);
+  border-style: solid;
 }
 
 .w20-tab {
   position: relative;
   min-width: 30px;
+  flex-shrink: 0;
   padding: 6px 8px;
   border: none;
   border-radius: 8px;

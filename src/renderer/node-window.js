@@ -30,6 +30,7 @@ export function createNodeWindow({ node, canvas, plane, onChange, onClose, onFoc
   const gripEl = el.querySelector('[data-role="grip"]')
 
   titleEl.textContent = node.title
+  let offscreen = false
 
   function place() {
     el.style.transform = `translate(${node.x}px, ${node.y}px)`
@@ -136,6 +137,16 @@ export function createNodeWindow({ node, canvas, plane, onChange, onClose, onFoc
       badgeEl.dataset.tone = tone
     },
     onResized: (fn) => el.addEventListener('w20:resized', fn),
+    /**
+     * Hide a window the viewport cannot reach. `visibility` rather than
+     * `display`, because a terminal that loses its box also loses the column
+     * count it measured — it would come back reflowed to nonsense.
+     */
+    setOffscreen: (flag) => {
+      if (offscreen === flag) return
+      offscreen = flag
+      el.classList.toggle('is-offscreen', flag)
+    },
     destroy: () => el.remove()
   }
 }

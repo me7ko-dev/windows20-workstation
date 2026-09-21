@@ -8,6 +8,9 @@
 const MIN_ZOOM = 0.2
 const MAX_ZOOM = 2.5
 
+/** Below this, window contents are unreadable — so they stop being drawn. */
+const DETAIL_ZOOM = 0.45
+
 export function createCanvas(viewport, plane) {
   const view = { x: 0, y: 0, zoom: 1 }
   const listeners = new Set()
@@ -16,7 +19,24 @@ export function createCanvas(viewport, plane) {
     for (const fn of listeners) fn(view)
   }
 
+  /**
+   * Marks the canvas as moving until it settles. The expensive part of a window
+   * is the blur behind it, which nobody can see mid-pan — the stylesheet drops
+   * it while this class is on.
+   */
+  let settleTimer = 0
+  function markMoving() {
+    if (!settleTimer) viewport.classList.add('is-moving')
+    clearTimeout(settleTimer)
+    settleTimer = setTimeout(() => {
+      settleTimer = 0
+      viewport.classList.remove('is-moving')
+    }, 140)
+  }
+
   function apply() {
+    markMoving()
+    viewport.classList.toggle('is-far', view.zoom < DETAIL_ZOOM)
     plane.style.transform = `translate(${view.x}px, ${view.y}px) scale(${view.zoom})`
     viewport.style.setProperty('--grid-size', `${32 * view.zoom}px`)
     viewport.style.setProperty('--grid-x', `${view.x}px`)
@@ -63,6 +83,21 @@ export function createCanvas(viewport, plane) {
     view.x = vw / 2 - (rect.x + (rect.width || 0) / 2) * view.zoom
     view.y = vh / 2 - (rect.y + (rect.height || 0) / 2) * view.zoom
     apply()
+  }
+
+  /**
+   * What the viewport currently covers, in canvas coordinates. Windows outside
+   * it are not painted — with a few hundred open, painting them all is the
+   * difference between a smooth pan and a slideshow.
+   */
+  function visibleRect(margin = 0) {
+    const m = margin / view.zoom
+    return {
+      left: -view.x / view.zoom - m,
+      top: -view.y / view.zoom - m,
+      right: (viewport.clientWidth - view.x) / view.zoom + m,
+      bottom: (viewport.clientHeight - view.y) / view.zoom + m
+    }
   }
 
   function setView(next) {
@@ -127,6 +162,7 @@ export function createCanvas(viewport, plane) {
     panBy,
     focus,
     setView,
+    visibleRect,
     zoomIn: () => zoomAt(viewport.clientWidth / 2, viewport.clientHeight / 2, 1.2),
     zoomOut: () => zoomAt(viewport.clientWidth / 2, viewport.clientHeight / 2, 1 / 1.2),
     resetZoom: () => setView({ zoom: 1 }),

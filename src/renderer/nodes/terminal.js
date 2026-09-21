@@ -14,6 +14,10 @@ export function mountTerminal(win, { cwd, shell, args, onExit }) {
     lineHeight: 1.2,
     cursorBlink: true,
     allowProposedApi: true,
+    // Scrollback is the one part of a terminal that grows without bound. At
+    // 2000 lines a busy agent costs a few MB, so a canvas full of them stays
+    // in the hundreds of MB rather than eating the machine.
+    scrollback: 2000,
     theme: {
       background: 'rgba(0,0,0,0)',
       foreground: '#e6eaf2',

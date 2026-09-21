@@ -7,10 +7,17 @@ import { mountSettings } from './nodes/settings.js'
 /**
  * Workspaces hold the layout; this module owns the live windows.
  *
- * Only the active workspace has DOM. Switching tears the old one down and
- * rebuilds from the model — except terminals, which cannot be rebuilt without
- * killing the process, so a workspace holding a running agent keeps its plane
- * alive and hidden instead.
+ * There is no fixed number of them — they are added and closed as needed, so
+ * the cost of the desktop has to be paid per *visible* window, not per window
+ * that exists. Two rules keep that true however far it grows:
+ *
+ *  - Leaving a workspace destroys its DOM and rebuilds it from the model on
+ *    return. The exception is a workspace holding a running terminal: that
+ *    process cannot be rebuilt, only killed, so its plane stays alive, hidden.
+ *  - Windows the viewport cannot reach are not painted (see `cull`).
+ *
+ * What is left growing with the number of workspaces is the plain model —
+ * a few hundred bytes each — and the terminals the user chose to keep running.
  */
 
 const WALLPAPERS = [
@@ -27,6 +34,9 @@ const DEFAULT_SIZES = {
   settings: { width: 380, height: 420 }
 }
 
+/** How far outside the viewport a window is still worth painting. */
+const CULL_MARGIN = 400
+
 let seq = 0
 function nextId(type) {
   seq += 1
@@ -38,9 +48,10 @@ export function createDesktop({ plane, canvas, programs, home }) {
   let activeIndex = 0
   const live = new Map() // nodeId -> { win, content }
   let focusedId = null
-  const planes = new Map() // workspaceIndex -> plane element
+  const planes = new Map() // workspaceId -> plane element
   const listeners = new Set()
   let saveTimer = null
+  let cullFrame = 0
 
   function emit() {
     for (const fn of listeners) fn(snapshot())
@@ -51,20 +62,30 @@ export function createDesktop({ plane, canvas, programs, home }) {
   }
 
   function planeFor(index) {
-    if (planes.has(index)) return planes.get(index)
+    const ws = workspaces[index]
+    if (planes.has(ws.id)) return planes.get(ws.id)
     const el = document.createElement('div')
     el.className = 'w20-plane-layer'
-    el.dataset.workspace = String(index)
+    el.dataset.workspace = ws.id
     plane.appendChild(el)
-    planes.set(index, el)
+    planes.set(ws.id, el)
     return el
   }
 
   /* ------------------------------------------------------------ model */
 
+  /** Names stay unique as workspaces come and go — never reused while one lives. */
+  function nextName() {
+    const taken = new Set(workspaces.map((ws) => Number(ws.name)).filter(Number.isFinite))
+    let n = 1
+    while (taken.has(n)) n += 1
+    return String(n).padStart(2, '0')
+  }
+
   function blankWorkspace(index) {
     return {
-      name: String(index + 1).padStart(2, '0'),
+      id: nextId('ws'),
+      name: nextName(),
       wallpaper: WALLPAPERS[index % WALLPAPERS.length].id,
       cwd: home,
       view: { x: 0, y: 0, zoom: 1 },
@@ -138,8 +159,8 @@ export function createDesktop({ plane, canvas, programs, home }) {
   }
 
   function renderActive() {
-    for (const [index, el] of planes) el.hidden = index !== activeIndex
     const ws = activeWorkspace()
+    for (const [id, el] of planes) el.hidden = id !== ws.id
     const layer = planeFor(activeIndex)
     // Mount anything in the model that has no window yet (first visit, or a
     // workspace whose non-terminal windows were torn down).
@@ -148,17 +169,64 @@ export function createDesktop({ plane, canvas, programs, home }) {
     }
     layer.hidden = false
     canvas.setView(ws.view)
+    cull()
     emit()
   }
 
-  function closeNode(id) {
-    if (focusedId === id) focusedId = null
-    const entry = live.get(id)
-    if (entry) {
-      if (entry.content && entry.content.destroy) entry.content.destroy()
-      entry.win.destroy()
-      live.delete(id)
+  /** Paint only what can be seen. Cheap enough to run on every pan frame. */
+  function cull() {
+    const box = canvas.visibleRect(CULL_MARGIN)
+    for (const node of activeWorkspace().nodes) {
+      const entry = live.get(node.id)
+      if (!entry) continue
+      entry.win.setOffscreen(
+        node.x > box.right ||
+          node.y > box.bottom ||
+          node.x + node.width < box.left ||
+          node.y + node.height < box.top
+      )
     }
+  }
+
+  function scheduleCull() {
+    if (cullFrame) return
+    cullFrame = requestAnimationFrame(() => {
+      cullFrame = 0
+      cull()
+    })
+  }
+
+  function tearDown(id) {
+    const entry = live.get(id)
+    if (!entry) return
+    if (entry.content && entry.content.destroy) entry.content.destroy()
+    entry.win.destroy()
+    live.delete(id)
+    if (focusedId === id) focusedId = null
+  }
+
+  function hasLiveTerminal(ws) {
+    return ws.nodes.some((n) => n.type === 'terminal' && live.has(n.id))
+  }
+
+  /**
+   * Give back the DOM of a workspace nobody is looking at. Refused while a
+   * terminal lives there — tearing that down would kill the process, and an
+   * agent must never die because the user glanced at another workspace.
+   */
+  function release(ws) {
+    if (!ws || hasLiveTerminal(ws)) return false
+    for (const node of ws.nodes) tearDown(node.id)
+    const el = planes.get(ws.id)
+    if (el) {
+      el.remove()
+      planes.delete(ws.id)
+    }
+    return true
+  }
+
+  function closeNode(id) {
+    tearDown(id)
     for (const ws of workspaces) {
       ws.nodes = ws.nodes.filter((n) => n.id !== id)
     }
@@ -185,6 +253,7 @@ export function createDesktop({ plane, canvas, programs, home }) {
     ws.nodes.push(node)
     const { win, content } = mountNode(node)
     if (focus && content && content.focus) requestAnimationFrame(() => content.focus())
+    scheduleCull()
     changed()
     return { node, win, content }
   }
@@ -228,9 +297,61 @@ export function createDesktop({ plane, canvas, programs, home }) {
 
   function switchTo(index) {
     if (index < 0 || index >= workspaces.length || index === activeIndex) return
-    activeWorkspace().view = { ...canvas.view }
+    const leaving = activeWorkspace()
+    leaving.view = { ...canvas.view }
     activeIndex = index
     renderActive()
+    // renderActive already reported the mount; report again once the workspace
+    // we left has given its DOM back, or the readout keeps the peak.
+    if (release(leaving)) emit()
+  }
+
+  function step(delta) {
+    const count = workspaces.length
+    switchTo(((activeIndex + delta) % count + count) % count)
+  }
+
+  function addWorkspace({ focus = true } = {}) {
+    const ws = blankWorkspace(workspaces.length)
+    workspaces.push(ws)
+    if (focus) switchTo(workspaces.length - 1)
+    else changed()
+    return workspaces.length - 1
+  }
+
+  /** Closing takes everything in it with it, running terminals included. */
+  function closeWorkspace(index = activeIndex) {
+    if (workspaces.length <= 1) return false
+    const ws = workspaces[index]
+    if (!ws) return false
+
+    for (const node of ws.nodes) tearDown(node.id)
+    const el = planes.get(ws.id)
+    if (el) {
+      el.remove()
+      planes.delete(ws.id)
+    }
+    workspaces.splice(index, 1)
+
+    if (index === activeIndex) activeIndex = Math.min(index, workspaces.length - 1)
+    else if (index < activeIndex) activeIndex -= 1
+
+    renderActive()
+    changed()
+    return true
+  }
+
+  /** What the desktop currently costs — the bar shows this so the user can see it. */
+  function stats() {
+    let windows = 0
+    let terminals = 0
+    for (const ws of workspaces) {
+      windows += ws.nodes.length
+      for (const node of ws.nodes) {
+        if (node.type === 'terminal' && live.has(node.id)) terminals += 1
+      }
+    }
+    return { workspaces: workspaces.length, windows, terminals, mounted: live.size }
   }
 
   function setWallpaper(id) {
@@ -276,20 +397,27 @@ export function createDesktop({ plane, canvas, programs, home }) {
 
   function load(state) {
     workspaces.length = 0
-    const saved = state && Array.isArray(state.workspaces) ? state.workspaces : null
-    for (let i = 0; i < 4; i += 1) {
+    const saved = state && Array.isArray(state.workspaces) && state.workspaces.length ? state.workspaces : null
+    const count = saved ? saved.length : 4
+    for (let i = 0; i < count; i += 1) {
       const base = blankWorkspace(i)
-      workspaces.push(saved && saved[i] ? { ...base, ...saved[i], nodes: saved[i].nodes || [] } : base)
+      workspaces.push(saved ? { ...base, ...saved[i], nodes: saved[i].nodes || [] } : base)
     }
-    activeIndex = state && Number.isInteger(state.activeIndex) ? Math.min(3, Math.max(0, state.activeIndex)) : 0
+    activeIndex =
+      state && Number.isInteger(state.activeIndex)
+        ? Math.min(workspaces.length - 1, Math.max(0, state.activeIndex))
+        : 0
     applyWallpaper()
     renderActive()
   }
 
   canvas.onChange(() => {
     activeWorkspace().view = { ...canvas.view }
+    scheduleCull()
     scheduleSave()
   })
+
+  window.addEventListener('resize', scheduleCull)
 
   return {
     WALLPAPERS,
@@ -300,6 +428,10 @@ export function createDesktop({ plane, canvas, programs, home }) {
     openNote,
     openSettings,
     closeNode,
+    addWorkspace,
+    closeWorkspace,
+    step,
+    stats,
     /** The terminal the user last touched — where dictated text should go. */
     focusedTerminal: () => {
       const entry = focusedId ? live.get(focusedId) : null

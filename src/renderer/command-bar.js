@@ -16,9 +16,11 @@ export function createCommandBar({ root, desktop, programs, canvas, toast }) {
     <div class="w20-bar-results" data-role="results" hidden></div>
     <div class="w20-bar-main">
       <button class="w20-bar-mic" data-role="mic" title="Гласът идва по-късно">◉</button>
-      <input class="w20-bar-input" data-role="input" placeholder="Напиши команда…  (Ctrl+K)" spellcheck="false" />
+      <input class="w20-bar-input" data-role="input" placeholder="Напиши команда…" spellcheck="false" />
       <span class="w20-bar-hint">Ctrl+K</span>
+      <span class="w20-bar-load" data-role="load"></span>
       <div class="w20-bar-tabs" data-role="tabs"></div>
+      <button class="w20-bar-add" data-role="add" title="Ново пространство (Ctrl+Shift+N)">+</button>
     </div>
   `
   root.appendChild(el)
@@ -27,6 +29,10 @@ export function createCommandBar({ root, desktop, programs, canvas, toast }) {
   const resultsEl = el.querySelector('[data-role="results"]')
   const tabsEl = el.querySelector('[data-role="tabs"]')
   const micBtn = el.querySelector('[data-role="mic"]')
+  const loadEl = el.querySelector('[data-role="load"]')
+  const addBtn = el.querySelector('[data-role="add"]')
+
+  addBtn.addEventListener('click', () => desktop.addWorkspace())
 
   const voice = createVoice({
     onState: (state) => {
@@ -99,6 +105,24 @@ export function createCommandBar({ root, desktop, programs, canvas, toast }) {
         hint: '100%',
         keywords: ['мащаб', 'zoom', 'reset', 'нулирай'],
         run: () => canvas.resetZoom()
+      },
+      {
+        id: 'ws:new',
+        label: 'Ново пространство',
+        hint: 'Ctrl+Shift+N',
+        keywords: ['ново', 'пространство', 'workspace', 'new', 'десктоп'],
+        run: () => desktop.addWorkspace()
+      },
+      {
+        id: 'ws:close',
+        label: `Затвори пространство ${desktop.activeWorkspace().name}`,
+        hint: 'заедно с прозорците в него',
+        keywords: ['затвори', 'махни', 'close', 'пространство', 'workspace'],
+        run: () => {
+          const name = desktop.activeWorkspace().name
+          if (desktop.closeWorkspace()) flash(`Пространство ${name} е затворено`)
+          else flash('Трябва да остане поне едно пространство')
+        }
       }
     ]
 
@@ -223,7 +247,7 @@ export function createCommandBar({ root, desktop, programs, canvas, toast }) {
     input.placeholder = message
     clearTimeout(flashTimer)
     flashTimer = setTimeout(() => {
-      input.placeholder = 'Напиши команда…  (Ctrl+K)'
+      input.placeholder = 'Напиши команда…'
     }, 4000)
   }
 
@@ -287,19 +311,45 @@ export function createCommandBar({ root, desktop, programs, canvas, toast }) {
 
   function drawTabs() {
     tabsEl.innerHTML = ''
+    let activeTab = null
     desktop.workspaces.forEach((ws, index) => {
       const tab = document.createElement('button')
-      tab.className = 'w20-tab' + (index === desktop.activeIndex ? ' is-active' : '')
+      const isActive = index === desktop.activeIndex
+      tab.className = 'w20-tab' + (isActive ? ' is-active' : '')
       tab.textContent = ws.name
-      tab.title = `${ws.nodes.length} прозореца — Ctrl+${index + 1}`
+      tab.title =
+        `${ws.nodes.length} прозореца` + (index < 9 ? ` — Ctrl+${index + 1}` : ' — Ctrl+Tab')
       if (ws.nodes.length) tab.dataset.count = String(ws.nodes.length)
       tab.addEventListener('click', () => desktop.switchTo(index))
       tabsEl.appendChild(tab)
+      if (isActive) activeTab = tab
     })
+    // The strip scrolls once there are more workspaces than fit.
+    if (activeTab) activeTab.scrollIntoView({ block: 'nearest', inline: 'nearest' })
   }
 
-  desktop.onChange(drawTabs)
+  /**
+   * What the desktop costs right now. `mounted/windows` is the point: windows
+   * that exist but are not built in the DOM cost nothing but their model.
+   */
+  function drawLoad() {
+    const s = desktop.stats()
+    const mem = performance.memory
+    const mb = mem ? Math.round(mem.usedJSHeapSize / 1048576) : null
+    loadEl.textContent = mb === null ? `${s.mounted}/${s.windows}` : `${s.mounted}/${s.windows} · ${mb} MB`
+    loadEl.title =
+      `${s.workspaces} пространства · ${s.windows} прозореца\n` +
+      `${s.mounted} изградени в паметта · ${s.terminals} живи терминала` +
+      (mb === null ? '' : `\nJS памет на платното: ${mb} MB`)
+  }
+
+  desktop.onChange(() => {
+    drawTabs()
+    drawLoad()
+  })
   drawTabs()
+  drawLoad()
+  setInterval(drawLoad, 3000)
 
   return {
     focus: () => {

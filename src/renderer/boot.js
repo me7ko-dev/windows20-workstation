@@ -8,9 +8,13 @@ const WELCOME = `Добре дошъл в работната станция.
 • Ctrl+K — командната лента долу
 • Ctrl+T — нов терминал
 • Ctrl+N — нова бележка
-• Ctrl+1…4 — работни пространства
+• Ctrl+Shift+N — ново пространство
+• Ctrl+1…9 и Ctrl+Tab — между пространствата
 • Ctrl+Shift+Space — говори
 • Ctrl + колелце — мащаб, влачене по фона — местене
+
+Пространствата са колкото ти трябват — „+“ вдясно
+долу добавя ново. Празните не заемат памет.
 
 Отляво са програмите, които наистина са на този компютър.
 Тези с терминал се отварят тук, на платното.
@@ -70,12 +74,23 @@ async function boot() {
       bar.toggleVoice()
       return
     }
+    if (ctrl && e.shiftKey && e.key.toLowerCase() === 'n') {
+      e.preventDefault()
+      desktop.addWorkspace()
+      return
+    }
     if (ctrl && e.key.toLowerCase() === 'n') {
       e.preventDefault()
       desktop.openNote()
       return
     }
-    if (ctrl && ['1', '2', '3', '4'].includes(e.key)) {
+    if (ctrl && e.key === 'Tab') {
+      e.preventDefault()
+      desktop.step(e.shiftKey ? -1 : 1)
+      return
+    }
+    // Only the first nine get a digit; past that the strip and Ctrl+Tab carry it.
+    if (ctrl && /^[1-9]$/.test(e.key)) {
       e.preventDefault()
       desktop.switchTo(Number(e.key) - 1)
       return
