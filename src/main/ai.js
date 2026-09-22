@@ -1,6 +1,7 @@
 'use strict'
 
-const { PROVIDERS } = require('./providers')
+const { PROVIDERS, FALLBACK_ORDER } = require('./providers')
+const models = require('./models')
 
 /**
  * What a sentence means, when the command table does not know it.
@@ -51,18 +52,84 @@ function chatUrl(provider, endpoint) {
   return /\/chat\/completions$/.test(base) ? base : `${base}/chat/completions`
 }
 
+/** One request to one service. `status` 0 means it never answered. */
+async function ask(url, apiKey, body, timeoutMs) {
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), timeoutMs)
+  try {
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {})
+      },
+      body: JSON.stringify(body),
+      signal: controller.signal
+    })
+    if (!response.ok) return { status: response.status, detail: (await response.text()).slice(0, 300) }
+    const data = await response.json()
+    const message = data && data.choices && data.choices[0] && data.choices[0].message
+    return { status: 200, content: message && message.content ? String(message.content) : '' }
+  } catch (err) {
+    return { status: 0, detail: err.name === 'AbortError' ? `не отговори за ${Math.round(timeoutMs / 1000)} секунди` : err.message }
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
+function requestBody(provider, model, messages) {
+  const body = { model, messages, temperature: 0.2, max_tokens: 1200 }
+  // gpt-oss thinks before it answers; for picking a command, a little is plenty.
+  if (provider === 'groq' && /gpt-oss/.test(model)) body.reasoning_effort = 'low'
+  return body
+}
+
+/**
+ * Try one service: its model, or — if that model has been retired — the one
+ * the service lists now.
+ */
+async function tryProvider(provider, { model, endpoint, apiKey, messages, timeoutMs }) {
+  const known = PROVIDERS[provider]
+  const url = chatUrl(provider, endpoint)
+  if (!url) return { status: 0, detail: 'няма адрес' }
+  let use = model || models.remembered(provider, 'chat') || known.chatModel
+  let result = await ask(url, apiKey, requestBody(provider, use, messages), timeoutMs)
+  if (result.status !== 200 && models.modelIsGone(result.status, result.detail) && known.prefer) {
+    const base = endpoint || known.baseUrl
+    const next = await models.discover(provider, 'chat', base, apiKey, known.prefer)
+    if (next && next !== use) {
+      use = next
+      result = await ask(url, apiKey, requestBody(provider, use, messages), timeoutMs)
+    }
+  }
+  return { ...result, model: use }
+}
+
+function explain(provider, result) {
+  const title = (PROVIDERS[provider] && PROVIDERS[provider].title.split(' —')[0]) || provider
+  if (result.status === 0) return `${title}: няма връзка (${result.detail})${provider === 'ollama' ? ' — пуснат ли е Ollama?' : ''}`
+  if (result.status === 429) return `${title}: безплатният лимит е изчерпан за момента`
+  if (result.status === 401 || result.status === 403) return `${title}: ключът не е приет`
+  if (models.modelIsGone(result.status, result.detail)) return `${title}: моделът вече не съществува — смени го в Настройки`
+  return `${title}: отказ (${result.status}) ${result.detail || ''}`.trim()
+}
+
+/**
+ * The chosen service first; when it is out of free requests, down or refuses
+ * the key, the next one that is set up — so a busy free tier is a detour, not
+ * a dead end. Only services with a key (or none needed) are tried.
+ */
 async function navigate({ text, commands, context }, settings) {
   const state = settings.read()
   const config = state.ai
   const known = PROVIDERS[config.provider]
-  const apiKey = settings.keyFor(config.provider, state)
-
   if (!known) return { ok: false, error: `Непозната услуга за ИИ: ${config.provider}` }
-  if (known.needsKey && !apiKey) {
+  if (known.needsKey && !settings.keyFor(config.provider, state)) {
     return { ok: false, error: 'Няма ключ за ИИ. Отвори Настройки — ключът за Groq или Gemini е безплатен.' }
   }
-  const url = chatUrl(config.provider, config.endpoint)
-  if (!url) return { ok: false, error: 'Няма адрес за ИИ услугата. Попълни го в Настройки.' }
+  if (config.provider === 'custom' && !config.endpoint) {
+    return { ok: false, error: 'Няма адрес за ИИ услугата. Попълни го в Настройки.' }
+  }
 
   const list = (commands || [])
     .slice(0, 200)
@@ -77,47 +144,44 @@ async function navigate({ text, commands, context }, settings) {
     }
   ]
 
-  const controller = new AbortController()
-  const timer = setTimeout(() => controller.abort(), 20000)
-  try {
-    const response = await fetch(url, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {})
-      },
-      body: JSON.stringify({
-        model: config.model || known.chatModel,
-        messages,
-        temperature: 0.2,
-        max_tokens: 400
-      }),
-      signal: controller.signal
-    })
-
-    if (!response.ok) {
-      const detail = await response.text()
-      const hint =
-        response.status === 429
-          ? ' Безплатният лимит е изчерпан за момента — опитай след малко или смени услугата.'
-          : response.status === 404
-            ? ' Може моделът вече да не съществува — смени го в Настройки.'
-            : ''
-      // Never echo the key back, whatever the service says.
-      return { ok: false, error: `ИИ услугата отказа (${response.status}).${hint} ${detail.slice(0, 200)}` }
+  const chain = [config.provider]
+  if (config.fallback !== false) {
+    for (const id of FALLBACK_ORDER) {
+      if (chain.includes(id)) continue
+      const p = PROVIDERS[id]
+      // Ollama costs nothing to try and answers at once when it is not there;
+      // the others only when their key is set.
+      if (id === 'ollama' || (p.needsKey && settings.keyFor(id, state))) chain.push(id)
     }
-
-    const data = await response.json()
-    const content = data && data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content
-    if (!content) return { ok: false, error: 'ИИ услугата върна празен отговор.' }
-    return { ok: true, ...parseReply(String(content)) }
-  } catch (err) {
-    if (err.name === 'AbortError') return { ok: false, error: 'ИИ услугата не отговори за 20 секунди.' }
-    const local = config.provider === 'ollama' ? ' Пуснат ли е Ollama?' : ''
-    return { ok: false, error: `Няма връзка с ИИ услугата: ${err.message}.${local}` }
-  } finally {
-    clearTimeout(timer)
   }
+
+  const failures = []
+  for (const provider of chain) {
+    const primary = provider === config.provider
+    const result = await tryProvider(provider, {
+      model: primary ? config.model : '',
+      endpoint: primary ? config.endpoint : '',
+      apiKey: settings.keyFor(provider, state),
+      messages,
+      timeoutMs: primary ? 20000 : 12000
+    })
+    if (result.status === 200) {
+      if (!result.content) {
+        failures.push(`${provider}: празен отговор`)
+        continue
+      }
+      return {
+        ok: true,
+        provider,
+        model: result.model,
+        fellBack: !primary,
+        ...parseReply(result.content)
+      }
+    }
+    failures.push(explain(provider, result))
+  }
+  // Never echo a key back, whatever the services said.
+  return { ok: false, error: `ИИ не отговори. ${failures.join(' · ')}` }
 }
 
 module.exports = { navigate, parseReply, chatUrl }

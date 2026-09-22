@@ -98,7 +98,14 @@ export function createCanvas(viewport, plane) {
   let gridSize = 0
   function paint() {
     viewport.classList.toggle('is-far', view.zoom < DETAIL_ZOOM)
-    plane.style.transform = `translate3d(${view.x}px, ${view.y}px, 0) scale(${view.zoom})`
+    // Whole device pixels, and a 2D transform: a plane sitting half a pixel off
+    // the grid, or kept on its own layer, is what turns text soft. The layer is
+    // only asked for while moving (see .is-moving in the stylesheet) — once the
+    // plane settles, it is painted again at its real scale, sharp.
+    const ratio = window.devicePixelRatio || 1
+    const x = Math.round(view.x * ratio) / ratio
+    const y = Math.round(view.y * ratio) / ratio
+    plane.style.transform = view.zoom === 1 ? `translate(${x}px, ${y}px)` : `translate(${x}px, ${y}px) scale(${view.zoom})`
 
     if (grid) {
       const size = 32 * view.zoom
@@ -173,7 +180,33 @@ export function createCanvas(viewport, plane) {
 
   /* ------------------------------------------------------------ actions */
 
+  /**
+   * A station laid out in fields does not move: one pixel of layout is one
+   * pixel of screen, always. Zooming out from it asks for the overview instead.
+   */
+  let locked = false
+  let onZoomOut = null
+
+  function setLocked(flag) {
+    locked = Boolean(flag)
+    viewport.classList.toggle('is-locked', locked)
+    if (locked) {
+      stopJump()
+      panX = 0
+      panY = 0
+      glideX = 0
+      glideY = 0
+      view.x = 0
+      view.y = 0
+      view.zoom = 1
+      zoomTarget = 1
+      dirty = true
+      schedule()
+    }
+  }
+
   function panBy(dx, dy) {
+    if (locked) return
     stopJump()
     panX += dx
     panY += dy
@@ -182,6 +215,7 @@ export function createCanvas(viewport, plane) {
 
   /** `px`/`py` are viewport-local — the point the zoom should hold still. */
   function zoomAt(px, py, factor) {
+    if (locked) return
     stopJump()
     anchorX = px
     anchorY = py
@@ -226,6 +260,7 @@ export function createCanvas(viewport, plane) {
 
   /** Centre the viewport on a canvas rect, optionally fitting it. */
   function focus(rect, { fit = false, padding = 120, glide = true } = {}) {
+    if (locked) return
     glideX = 0
     glideY = 0
     if (fit && rect.width && rect.height) {
@@ -256,7 +291,7 @@ export function createCanvas(viewport, plane) {
   }
 
   function setView(next) {
-    if (!next) return
+    if (!next || locked) return
     glideX = 0
     glideY = 0
     view.x = next.x ?? view.x
@@ -272,6 +307,15 @@ export function createCanvas(viewport, plane) {
   viewport.addEventListener(
     'wheel',
     (e) => {
+      if (locked) {
+        // Scrolling belongs to whatever is under the pointer; only a pinch or
+        // Ctrl+wheel outwards means something to the station itself.
+        if (e.ctrlKey || e.metaKey) {
+          e.preventDefault()
+          if (e.deltaY > 0 && onZoomOut) onZoomOut()
+        }
+        return
+      }
       e.preventDefault()
       if (e.ctrlKey || e.metaKey) {
         zoomAt(e.clientX - vleft, e.clientY - vtop, e.deltaY < 0 ? 1.12 : 1 / 1.12)
@@ -287,7 +331,7 @@ export function createCanvas(viewport, plane) {
   viewport.addEventListener('pointerdown', (e) => {
     const onBackground = e.target === viewport || e.target === plane || e.target.classList.contains('w20-plane-bg')
     const wantsPan = e.button === 1 || (e.button === 0 && onBackground)
-    if (!wantsPan) return
+    if (!wantsPan || locked) return
     stopJump()
     glideX = 0
     glideY = 0
@@ -349,6 +393,14 @@ export function createCanvas(viewport, plane) {
 
   return {
     view,
+    setLocked,
+    get locked() {
+      return locked
+    },
+    /** Called when the user zooms out of a locked station. */
+    onZoomOut: (fn) => {
+      onZoomOut = fn
+    },
     toCanvas,
     panBy,
     focus,

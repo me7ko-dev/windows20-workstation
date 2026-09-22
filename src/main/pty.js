@@ -29,7 +29,7 @@ function defaultShell() {
   return process.env.W20_SHELL || 'powershell.exe'
 }
 
-function create({ owner, id, cwd, shell, args = [], cols = 80, rows = 24 }, onData, onExit) {
+function create({ owner, id, cwd, shell, args = [], cols = 80, rows = 24, env = {} }, onData, onExit) {
   if (!pty) throw new Error(`node-pty is not built: ${ptyError}`)
   const key = keyFor(owner, id)
   if (sessions.has(key)) return sessions.get(key)
@@ -39,7 +39,7 @@ function create({ owner, id, cwd, shell, args = [], cols = 80, rows = 24 }, onDa
     cols,
     rows,
     cwd: cwd || os.homedir(),
-    env: { ...process.env, TERM: 'xterm-256color' },
+    env: { ...process.env, ...env, TERM: 'xterm-256color' },
     useConpty: process.platform === 'win32'
   })
 

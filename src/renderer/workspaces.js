@@ -5,6 +5,9 @@ import { mountLauncher } from './nodes/launcher.js'
 import { mountSettings } from './nodes/settings.js'
 import { mountWeb } from './nodes/web.js'
 import { mountFiles } from './nodes/files.js'
+import { layout as fieldLayout, placeFor, compact, inField, usedFields, neighbourIn, CAPACITY } from './fields.js'
+import { STYLES, randomPicture, accentOf } from './pictures.js'
+import { pictures } from './picture-store.js'
 
 /**
  * Workspaces hold the layout; this module owns the live windows.
@@ -23,97 +26,22 @@ import { mountFiles } from './nodes/files.js'
  */
 
 /**
- * Backgrounds. Each one carries its accent too, so picking a background themes
- * the whole station — the tabs, the station badge, the dot grid — rather than
- * just repainting behind the windows. That is what makes two stations tellable
- * apart at a glance.
+ * Backgrounds are painted pictures (see pictures.js): a style and a seed per
+ * station. Each carries its own accent, so a picture themes the whole station
+ * — the tabs, the badge, the focused window — and ten stations are ten
+ * different places, not one place ten times.
  */
-const WALLPAPERS = [
-  {
-    id: 'deep',
-    label: 'Дълбочина',
-    accent: '#5ee0ff',
-    grid: 'rgba(255, 255, 255, 0.07)',
-    css: 'radial-gradient(1200px 800px at 20% -10%, #17324a, transparent 60%), linear-gradient(160deg, #0b0d12, #131824)'
-  },
-  {
-    id: 'aurora',
-    label: 'Полярно',
-    accent: '#6ee7a8',
-    grid: 'rgba(160, 255, 210, 0.08)',
-    css: 'radial-gradient(900px 700px at 80% 0%, #1d3b34, transparent 60%), radial-gradient(1000px 600px at 10% 90%, #2a1f3d, transparent 60%), linear-gradient(160deg, #0a0c11, #10141d)'
-  },
-  {
-    id: 'ember',
-    label: 'Жар',
-    accent: '#ff9f5a',
-    grid: 'rgba(255, 180, 120, 0.08)',
-    css: 'radial-gradient(1000px 700px at 75% 10%, #3a2016, transparent 60%), linear-gradient(160deg, #0d0b0a, #1a1512)'
-  },
-  {
-    id: 'slate',
-    label: 'Шисти',
-    accent: '#9aa2b1',
-    grid: 'rgba(255, 255, 255, 0.06)',
-    css: 'linear-gradient(160deg, #0e1014, #1b1f27)'
-  },
-  {
-    id: 'matrix',
-    label: 'Матрицата',
-    accent: '#39ff14',
-    grid: 'rgba(57, 255, 20, 0.13)',
-    css: 'radial-gradient(1100px 800px at 50% -10%, #04240f, transparent 65%), linear-gradient(180deg, #000400, #020d05)'
-  },
-  {
-    id: 'amber',
-    label: 'Кехлибарен терминал',
-    accent: '#ffb000',
-    grid: 'rgba(255, 176, 0, 0.12)',
-    css: 'radial-gradient(1300px 900px at 50% 100%, #3d2800, transparent 70%), linear-gradient(180deg, #0a0700, #1c1305)'
-  },
-  {
-    id: 'neon',
-    label: 'Неон',
-    accent: '#ff2fd0',
-    grid: 'rgba(255, 47, 208, 0.12)',
-    css: 'radial-gradient(900px 700px at 15% 0%, #2a0a3d, transparent 60%), radial-gradient(900px 700px at 85% 100%, #062a3d, transparent 60%), linear-gradient(160deg, #07040c, #0d0716)'
-  },
-  {
-    id: 'synth',
-    label: 'Синтуейв',
-    accent: '#ff6ad5',
-    grid: 'rgba(255, 106, 213, 0.14)',
-    css: 'linear-gradient(180deg, #150726 0%, #2b0f3f 45%, #45123f 62%, #0a0512 63%, #060209 100%)'
-  },
-  {
-    id: 'toxic',
-    label: 'Токсично',
-    accent: '#c6ff00',
-    grid: 'rgba(198, 255, 0, 0.12)',
-    css: 'radial-gradient(1000px 800px at 30% 100%, #1b2600, transparent 60%), linear-gradient(160deg, #06080a, #0e1206)'
-  },
-  {
-    id: 'ice',
-    label: 'Лед',
-    accent: '#7adbff',
-    grid: 'rgba(122, 219, 255, 0.11)',
-    css: 'radial-gradient(1100px 800px at 60% -10%, #0b2b3d, transparent 62%), linear-gradient(170deg, #04080d, #0a1420)'
-  },
-  {
-    id: 'blood',
-    label: 'Кръв',
-    accent: '#ff4d4d',
-    grid: 'rgba(255, 77, 77, 0.11)',
-    css: 'radial-gradient(1000px 750px at 40% 0%, #2e0708, transparent 62%), linear-gradient(170deg, #070203, #14070a)'
-  },
-  {
-    id: 'void',
-    label: 'Празнота',
-    accent: '#7f8794',
-    grid: 'rgba(255, 255, 255, 0.045)',
-    css: 'linear-gradient(180deg, #000000, #05060a)'
-  }
-]
+const WALLPAPERS = STYLES
+
+/** What a window shows before its title, so a field of four reads at a glance. */
+const ICONS = {
+  terminal: '›_',
+  web: '◎',
+  files: '▤',
+  note: '✎',
+  settings: '⚙',
+  launcher: '↗'
+}
 
 const DEFAULT_SIZES = {
   terminal: { width: 720, height: 460 },
@@ -133,7 +61,7 @@ function nextId(type) {
   return `${type}-${Date.now().toString(36)}-${seq}`
 }
 
-export function createDesktop({ plane, canvas, programs, home, speaker }) {
+export function createDesktop({ plane, canvas, programs, home, speaker, insets, notify }) {
   const workspaces = []
   let activeIndex = 0
   const live = new Map() // nodeId -> { win, content }
@@ -172,15 +100,33 @@ export function createDesktop({ plane, canvas, programs, home, speaker }) {
     return String(n).padStart(2, '0')
   }
 
-  function blankWorkspace(wallpaper) {
+  function blankWorkspace() {
     return {
       id: nextId('ws'),
       name: nextName(),
-      wallpaper,
+      // Fields: at most four, four windows each, nothing scaled. The free
+      // canvas is still there for a station that wants it.
+      layout: 'fields',
+      solo: null,
+      picture: randomPicture(),
       cwd: home,
       view: { x: 0, y: 0, zoom: 1 },
       nodes: []
     }
+  }
+
+  const tiledMode = (ws = activeWorkspace()) => ws.layout === 'fields'
+
+  /**
+   * A picture for a new station: the style the other stations use least, so
+   * ten stations are ten different places before any style repeats.
+   */
+  function freshPicture() {
+    const uses = new Map(STYLES.map((st) => [st.id, 0]))
+    for (const ws of workspaces) if (ws.picture) uses.set(ws.picture.style, (uses.get(ws.picture.style) || 0) + 1)
+    const least = Math.min(...uses.values())
+    const pool = STYLES.filter((st) => uses.get(st.id) === least)
+    return { style: pool[Math.floor(Math.random() * pool.length)].id, seed: Math.floor(Math.random() * 2 ** 31) }
   }
 
   function snapshot() {
@@ -216,18 +162,23 @@ export function createDesktop({ plane, canvas, programs, home, speaker }) {
   /* ----------------------------------------------------------- windows */
 
   function mountNode(node) {
+    const program = node.programId ? programs.find((p) => p.id === node.programId) : null
     const win = createNodeWindow({
       node,
       canvas,
       plane: planeFor(activeIndex),
-      onChange: changed,
+      icon: (program && program.icon) || ICONS[node.type] || '',
+      onChange: (opts) => {
+        if (opts && opts.relayout) relayout()
+        changed()
+      },
       onClose: (n) => closeNode(n.id),
       // Dictation needs to know which terminal the words belong to.
-      onFocus: (n) => {
-        focusedId = n.id
-      },
-      onExpand: (n) => expand(n.id)
+      onFocus: (n) => setFocus(n.id),
+      onExpand: (n) => expand(n.id),
+      onDrop: (n, x, y) => dropNode(n.id, x, y)
     })
+    win.setTiled(tiledMode())
 
     let content = null
     if (node.type === 'terminal') {
@@ -282,9 +233,221 @@ export function createDesktop({ plane, canvas, programs, home, speaker }) {
       if (!live.has(node.id)) mountNode(node)
     }
     layer.hidden = false
-    canvas.setView(ws.view)
+    const tiled = tiledMode(ws)
+    document.body.classList.toggle('is-fields', tiled)
+    canvas.setLocked(tiled)
+    if (!tiled) canvas.setView(ws.view)
+    for (const node of ws.nodes) {
+      const entry = live.get(node.id)
+      if (entry) entry.win.setTiled(tiled)
+    }
+    applyWallpaper()
+    relayout({ glide: false })
     cull()
     emit()
+  }
+
+  /* ------------------------------------------------------------ fields */
+
+  /** The part of the screen fields may use: clear of the dock and the bar. */
+  function fieldArea() {
+    const size = canvas.size()
+    const edge = insets ? insets() : { left: 16, top: 16, right: 16, bottom: 16 }
+    return {
+      x: edge.left,
+      y: edge.top,
+      width: Math.max(200, size.width - edge.left - edge.right),
+      height: Math.max(160, size.height - edge.top - edge.bottom)
+    }
+  }
+
+  /** The drawn outline of each field, under its windows. */
+  function drawFrames(ws, result) {
+    const layer = planeFor(activeIndex)
+    let frames = layer.querySelector(':scope > .w20-fields')
+    if (!frames) {
+      frames = document.createElement('div')
+      frames.className = 'w20-fields'
+      layer.prepend(frames)
+    }
+    frames.innerHTML = ''
+    if (!tiledMode(ws) || result.solo) return
+    const pad = 6
+    for (const f of result.fields) {
+      const frame = document.createElement('div')
+      frame.className = 'w20-field-frame'
+      if (focusedNode() && focusedNode().field === f.field) frame.classList.add('is-current')
+      frame.style.transform = `translate(${f.rect.x - pad}px, ${f.rect.y - pad}px)`
+      frame.style.width = `${f.rect.width + pad * 2}px`
+      frame.style.height = `${f.rect.height + pad * 2}px`
+      frame.innerHTML = `<span class="w20-field-tag">${f.field + 1}<small>${f.count}/4</small></span>`
+      frames.appendChild(frame)
+    }
+    const empty = !ws.nodes.length
+    layer.classList.toggle('is-empty', empty)
+  }
+
+  let lastLayout = null
+
+  /**
+   * Put every window of a tiled station where its field says. Called after
+   * anything that changes the fields: a window opened, closed, dropped, the
+   * screen resized.
+   */
+  function relayout({ glide = true } = {}) {
+    const ws = activeWorkspace()
+    if (!tiledMode(ws)) {
+      drawFrames(ws, { fields: [] })
+      lastLayout = null
+      return
+    }
+    const area = fieldArea()
+    const result = fieldLayout(ws, area)
+    lastLayout = result
+    for (const node of ws.nodes) {
+      const rect = result.windows.get(node.id)
+      const entry = live.get(node.id)
+      if (!rect) continue
+      const resized = rect.width !== node.width || rect.height !== node.height
+      Object.assign(node, rect)
+      if (!entry) continue
+      if (glide) entry.win.settle(260)
+      entry.win.place()
+      entry.win.setHidden(Boolean(result.solo) && result.solo !== node.id)
+      if (resized) entry.win.remeasure()
+      if (result.solo === node.id) entry.win.raise()
+    }
+    drawFrames(ws, result)
+    emit()
+  }
+
+  function setFocus(id) {
+    focusedId = id
+    for (const [nid, entry] of live) entry.win.setFocused(nid === id)
+    const ws = activeWorkspace()
+    if (tiledMode(ws) && lastLayout) drawFrames(ws, lastLayout)
+  }
+
+  /** Focus a window and put the caret in it. */
+  function focusNode(id) {
+    const entry = live.get(id)
+    if (!entry) return false
+    setFocus(id)
+    entry.win.raise()
+    if (entry.content && entry.content.focus) entry.content.focus()
+    return true
+  }
+
+  /** Rectangles of the windows on screen now — for moving by direction. */
+  function visibleRects() {
+    const rects = new Map()
+    const ws = activeWorkspace()
+    for (const node of ws.nodes) {
+      if (ws.solo && ws.solo !== node.id && tiledMode(ws)) continue
+      rects.set(node.id, { x: node.x, y: node.y, width: node.width, height: node.height })
+    }
+    return rects
+  }
+
+  /** Alt+arrow: the caret goes to the nearest window that way. */
+  function focusDirection(dir) {
+    const ws = activeWorkspace()
+    if (!ws.nodes.length) return null
+    const from = focusedId && live.has(focusedId) ? focusedId : ws.nodes[0].id
+    const to = neighbourIn(visibleRects(), from, dir) || (from === focusedId ? null : from)
+    if (!to) return null
+    focusNode(to)
+    if (!tiledMode(ws)) live.get(to).win.focusInView()
+    return nodeById(to).node
+  }
+
+  /**
+   * Alt+Shift+arrow: the window trades places with its neighbour that way — or,
+   * with a field still free, moves out into it.
+   */
+  function moveDirection(dir) {
+    const ws = activeWorkspace()
+    const found = focusedId ? nodeById(focusedId) : null
+    if (!found || found.ws !== ws) return false
+    const node = found.node
+    if (!tiledMode(ws)) {
+      const step = 60
+      node.x += dir === 'left' ? -step : dir === 'right' ? step : 0
+      node.y += dir === 'up' ? -step : dir === 'down' ? step : 0
+      live.get(node.id).win.place()
+      changed()
+      return true
+    }
+    const other = neighbourIn(visibleRects(), node.id, dir)
+    if (other) {
+      swap(node, nodeById(other).node)
+    } else if (usedFields(ws).length < 4 && inField(ws, node.field).length > 1) {
+      const place = placeFor(ws)
+      node.field = place.field
+      node.slot = place.slot
+      compact(ws)
+    } else {
+      return false
+    }
+    relayout()
+    changed()
+    return true
+  }
+
+  function swap(a, b) {
+    const f = a.field
+    const s2 = a.slot
+    a.field = b.field
+    a.slot = b.slot
+    b.field = f
+    b.slot = s2
+  }
+
+  /** A tiled window dropped by its title: it trades places with what is there. */
+  function dropNode(id, clientX, clientY) {
+    const ws = activeWorkspace()
+    const found = nodeById(id)
+    if (!found || !tiledMode(ws)) return
+    const point = canvas.toCanvas(clientX, clientY)
+    const target = ws.nodes.find(
+      (n) =>
+        n.id !== id &&
+        point.x >= n.x &&
+        point.x <= n.x + n.width &&
+        point.y >= n.y &&
+        point.y <= n.y + n.height
+    )
+    if (target) swap(found.node, target)
+    relayout()
+    changed()
+  }
+
+  /** Alt+1…4: the first window of that field. */
+  function focusField(field) {
+    const members = inField(activeWorkspace(), field)
+    return members.length ? focusNode(members[0].id) : false
+  }
+
+  /** Free canvas ↔ fields, for this station. */
+  function toggleLayout() {
+    const ws = activeWorkspace()
+    if (tiledMode(ws)) {
+      ws.layout = 'canvas'
+      ws.solo = null
+      // Keep the windows where the fields had them, so nothing jumps.
+      ws.view = { x: 0, y: 0, zoom: 1 }
+    } else {
+      if (ws.nodes.length > CAPACITY) return { ok: false, reason: `В полетата се побират ${CAPACITY} прозореца, тук има ${ws.nodes.length}.` }
+      ws.layout = 'fields'
+      ws.nodes.forEach((n) => {
+        delete n.field
+        delete n.slot
+      })
+      for (const n of ws.nodes) Object.assign(n, placeFor(ws))
+    }
+    renderActive()
+    changed()
+    return { ok: true, layout: ws.layout }
   }
 
   /** Paint only what can be seen. Cheap enough to run on every pan frame. */
@@ -342,8 +505,12 @@ export function createDesktop({ plane, canvas, programs, home, speaker }) {
   function closeNode(id) {
     tearDown(id)
     for (const ws of workspaces) {
+      const had = ws.nodes.length
       ws.nodes = ws.nodes.filter((n) => n.id !== id)
+      if (ws.solo === id) ws.solo = null
+      if (ws.nodes.length !== had) compact(ws)
     }
+    relayout()
     changed()
   }
 
@@ -378,8 +545,16 @@ export function createDesktop({ plane, canvas, programs, home, speaker }) {
     const target = workspaces[index]
     const found = nodeById(id)
     if (!target || !found || found.ws === target) return false
+    let place = null
+    if (tiledMode(target)) {
+      place = placeFor(target)
+      if (!place) return false
+    }
 
     found.ws.nodes = found.ws.nodes.filter((n) => n.id !== id)
+    if (found.ws.solo === id) found.ws.solo = null
+    compact(found.ws)
+    if (place) Object.assign(found.node, place)
     target.nodes.push(found.node)
 
     if (live.has(id)) {
@@ -421,6 +596,11 @@ export function createDesktop({ plane, canvas, programs, home, speaker }) {
   function fitAll() {
     const box = bounds()
     if (!box) return null
+    if (tiledMode()) {
+      activeWorkspace().solo = null
+      relayout()
+      return { count: activeWorkspace().nodes.length, fits: true }
+    }
     canvas.focus(box, { fit: true })
     const seen = canvas.visibleRect(0)
     return {
@@ -484,6 +664,16 @@ export function createDesktop({ plane, canvas, programs, home, speaker }) {
     const found = id ? nodeById(id) : null
     if (!found) return null
     const { node, ws } = found
+
+    // In fields the whole station is the neighbourhood: the window takes the
+    // screen, the others wait behind it, running.
+    if (tiledMode(ws)) {
+      const grow = ws.solo !== node.id
+      ws.solo = grow ? node.id : null
+      relayout()
+      changed()
+      return { expanded: grow, title: node.title, covered: grow ? ws.nodes.length - 1 : 0 }
+    }
 
     const apply = ({ follow = false } = {}) => {
       const entry = live.get(node.id)
@@ -563,6 +753,13 @@ export function createDesktop({ plane, canvas, programs, home, speaker }) {
   function tidy() {
     const ws = activeWorkspace()
     if (!ws.nodes.length) return 0
+    if (tiledMode(ws)) {
+      ws.solo = null
+      compact(ws)
+      relayout()
+      changed()
+      return ws.nodes.length
+    }
 
     const box = bounds(ws)
     const ordered = [...ws.nodes].sort((a, b) => a.y - b.y || a.x - b.x)
@@ -608,10 +805,24 @@ export function createDesktop({ plane, canvas, programs, home, speaker }) {
 
   /* -------------------------------------------------------- public api */
 
-  function addNode(partial, { focus = true } = {}) {
+  function addNode(partial, { focus = true, sameField = false } = {}) {
     const size = DEFAULT_SIZES[partial.type] || DEFAULT_SIZES.terminal
     const center = canvas.viewportCenter()
     const ws = activeWorkspace()
+
+    let place = null
+    if (tiledMode(ws)) {
+      const current = focusedNode()
+      place = placeFor(ws, {
+        preferField: current && nodeById(current.id).ws === ws ? current.field : null,
+        sameField
+      })
+      if (!place) {
+        if (notify) notify(`Станцията е пълна — ${CAPACITY} прозореца в 4 полета. Затвори някой или отвори нова станция (Ctrl+Shift+N).`)
+        return null
+      }
+      ws.solo = null
+    }
 
     const node = {
       id: nextId(partial.type),
@@ -620,29 +831,40 @@ export function createDesktop({ plane, canvas, programs, home, speaker }) {
       width: size.width,
       height: size.height,
       ...size,
-      ...partial
+      ...partial,
+      ...(place || {})
     }
 
     ws.nodes.push(node)
+    if (place) {
+      // Laid out before it is mounted, so a terminal measures its real box.
+      const rect = fieldLayout(ws, fieldArea()).windows.get(node.id)
+      if (rect) Object.assign(node, rect)
+    }
     const { win, content } = mountNode(node)
     // A window opened is a window focused — otherwise Ctrl+W after Ctrl+T would
     // close whatever the user happened to click last, which is worse than nothing.
-    if (focus) focusedId = node.id
+    if (focus) setFocus(node.id)
     if (focus && content && content.focus) requestAnimationFrame(() => content.focus())
+    relayout()
     scheduleCull()
     changed()
     return { node, win, content }
   }
 
-  function openTerminal({ title, shell, args, cwd, accent, badge } = {}) {
-    return addNode({
-      type: 'terminal',
-      title: title || 'Терминал',
-      shell,
-      args,
-      cwd: cwd || activeWorkspace().cwd,
-      accent
-    })
+  function openTerminal({ title, shell, args, cwd, accent, programId, sameField = false } = {}) {
+    return addNode(
+      {
+        type: 'terminal',
+        title: title || 'Терминал',
+        shell,
+        args,
+        programId,
+        cwd: cwd || activeWorkspace().cwd,
+        accent
+      },
+      { sameField }
+    )
   }
 
   /**
@@ -692,8 +914,10 @@ export function createDesktop({ plane, canvas, programs, home, speaker }) {
       // Windows Terminal is a home for shells, which is what this station is.
       // Its button opens a plain terminal here rather than a second window.
       shell: program.useDefaultShell ? undefined : program.path || program.command,
+      args: program.args,
       cwd: cwd || activeWorkspace().cwd,
-      accent: program.accent
+      accent: program.accent,
+      programId: program.id
     })
   }
 
@@ -714,7 +938,7 @@ export function createDesktop({ plane, canvas, programs, home, speaker }) {
   function switchTo(index) {
     if (index < 0 || index >= workspaces.length || index === activeIndex) return
     const leaving = activeWorkspace()
-    leaving.view = { ...canvas.view }
+    if (!tiledMode(leaving)) leaving.view = { ...canvas.view }
     activeIndex = index
     renderActive()
     // renderActive already reported the mount; report again once the workspace
@@ -728,8 +952,9 @@ export function createDesktop({ plane, canvas, programs, home, speaker }) {
   }
 
   function addWorkspace({ focus = true } = {}) {
-    // A new workspace keeps the station's colours; the station is the identity.
-    const ws = blankWorkspace(activeWorkspace().wallpaper)
+    // Every new station gets a picture of its own — never the style it follows.
+    const ws = blankWorkspace()
+    ws.picture = freshPicture()
     workspaces.push(ws)
     if (focus) switchTo(workspaces.length - 1)
     else changed()
@@ -771,29 +996,47 @@ export function createDesktop({ plane, canvas, programs, home, speaker }) {
     return { workspaces: workspaces.length, windows, terminals, mounted: live.size }
   }
 
-  function setWallpaper(id) {
-    const paper = WALLPAPERS.find((w) => w.id === id)
-    if (!paper) return
-    activeWorkspace().wallpaper = paper.id
+  /** A new picture in this style — a new seed, so never the same one twice. */
+  function setWallpaper(style) {
+    if (!STYLES.some((w) => w.id === style)) return
+    activeWorkspace().picture = { style, seed: Math.floor(Math.random() * 2 ** 31) }
     applyWallpaper()
     changed()
   }
 
+  let pictureToken = 0
+
+  /**
+   * Show the station's picture: its accent at once, the small version as soon
+   * as it exists, then the 4K one crossfading over it.
+   */
   function applyWallpaper() {
     const ws = activeWorkspace()
-    const paper = WALLPAPERS.find((w) => w.id === ws.wallpaper) || WALLPAPERS[0]
-    document.body.style.setProperty('--wallpaper', paper.css)
-    document.body.style.setProperty('--accent', paper.accent)
-    document.body.style.setProperty('--grid-color', paper.grid)
+    if (!ws.picture) ws.picture = randomPicture()
+    const { style, seed } = ws.picture
+    const accent = accentOf(style, seed)
+    const body = document.body.style
+    body.setProperty('--accent', accent)
+    body.setProperty('--grid-color', `color-mix(in srgb, ${accent} 12%, transparent)`)
+    const token = ++pictureToken
+    let sharp = false
+    const show = (result, full) => {
+      if (!result || token !== pictureToken || (sharp && !full)) return
+      if (full) sharp = true
+      body.setProperty('--wallpaper', `url("${result.url}") center / cover no-repeat, #05060a`)
+    }
+    pictures.thumb(ws.picture).then((thumb) => show(thumb, false))
+    pictures.full(ws.picture).then((full) => show(full, true))
   }
 
-  /** Anything but the one already on screen — a reroll that changes nothing is a bug. */
+  /** Anything but the style already on screen — a reroll that changes nothing is a bug. */
   function randomWallpaper() {
-    const current = activeWorkspace().wallpaper
-    const others = WALLPAPERS.filter((w) => w.id !== current)
-    const paper = others[Math.floor(Math.random() * others.length)]
-    setWallpaper(paper.id)
-    return paper
+    const current = activeWorkspace().picture && activeWorkspace().picture.style
+    const next = randomPicture(current)
+    activeWorkspace().picture = next
+    applyWallpaper()
+    changed()
+    return STYLES.find((w) => w.id === next.style)
   }
 
   function setCwd(dir) {
@@ -817,6 +1060,12 @@ export function createDesktop({ plane, canvas, programs, home, speaker }) {
     if (workspaceIndex !== activeIndex) switchTo(workspaceIndex)
     const entry = live.get(id)
     if (!entry) return
+    setFocus(id)
+    const ws = activeWorkspace()
+    if (tiledMode(ws) && ws.solo && ws.solo !== id) {
+      ws.solo = null
+      relayout()
+    }
     entry.win.raise()
     entry.win.focusInView()
     entry.win.el.classList.add('is-flashing')
@@ -826,13 +1075,21 @@ export function createDesktop({ plane, canvas, programs, home, speaker }) {
   function load(state) {
     workspaces.length = 0
     const saved = state && Array.isArray(state.workspaces) && state.workspaces.length ? state.workspaces : null
-    const count = saved ? saved.length : 4
-    // A station opening for the first time draws its own colours, so the second
-    // and third one do not come up looking like the first.
-    const fresh = WALLPAPERS[Math.floor(Math.random() * WALLPAPERS.length)].id
+    // Ten to start with: the overview is the point, and an empty station
+    // costs nothing but its name and its picture.
+    const count = saved ? saved.length : 10
     for (let i = 0; i < count; i += 1) {
-      const base = blankWorkspace(fresh)
-      workspaces.push(saved ? { ...base, ...saved[i], nodes: saved[i].nodes || [] } : base)
+      const base = blankWorkspace()
+      base.picture = freshPicture()
+      const ws = saved ? { ...base, ...saved[i], nodes: saved[i].nodes || [] } : base
+      if (!ws.picture || !ws.picture.style) ws.picture = base.picture
+      delete ws.wallpaper
+      // A layout from before fields: it moves into them if it fits.
+      if (!ws.layout) {
+        ws.layout = ws.nodes.length <= CAPACITY ? 'fields' : 'canvas'
+        if (ws.layout === 'fields') for (const n of ws.nodes) Object.assign(n, placeFor(ws))
+      }
+      workspaces.push(ws)
     }
     activeIndex =
       state && Number.isInteger(state.activeIndex)
@@ -843,12 +1100,17 @@ export function createDesktop({ plane, canvas, programs, home, speaker }) {
   }
 
   canvas.onChange(() => {
-    activeWorkspace().view = { ...canvas.view }
+    if (!tiledMode()) activeWorkspace().view = { ...canvas.view }
     scheduleCull()
     scheduleSave()
   })
 
-  window.addEventListener('resize', scheduleCull)
+  let resizeFrame = 0
+  window.addEventListener('resize', () => {
+    scheduleCull()
+    cancelAnimationFrame(resizeFrame)
+    resizeFrame = requestAnimationFrame(() => relayout({ glide: false }))
+  })
 
   return {
     WALLPAPERS,
@@ -863,6 +1125,15 @@ export function createDesktop({ plane, canvas, programs, home, speaker }) {
     closeNode,
     closeFocused,
     focusedNode,
+    focusNode,
+    focusDirection,
+    moveDirection,
+    focusField,
+    toggleLayout,
+    relayout,
+    isTiled: () => tiledMode(),
+    ICONS,
+    CAPACITY,
     expand,
     moveNodeTo,
     bounds,

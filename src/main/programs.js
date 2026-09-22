@@ -58,6 +58,43 @@ const CATALOG = [
     description: 'Gemini CLI.'
   },
   {
+    id: 'aider',
+    title: 'Aider',
+    icon: '⌬',
+    kind: 'agent',
+    command: 'aider',
+    accent: '#14b8a6',
+    description: 'Aider — агент за код; тръгва с безплатния ключ от Настройки (Groq, Gemini, OpenRouter).'
+  },
+  {
+    id: 'opencode',
+    title: 'OpenCode',
+    icon: '◰',
+    kind: 'agent',
+    command: 'opencode',
+    accent: '#f97316',
+    description: 'OpenCode — агент за код с безплатни модели.'
+  },
+  {
+    id: 'qwen',
+    title: 'Qwen Code',
+    icon: '◇',
+    kind: 'agent',
+    command: 'qwen',
+    accent: '#8b5cf6',
+    description: 'Qwen Code CLI.'
+  },
+  {
+    id: 'ollama',
+    title: 'Ollama',
+    icon: 'λ',
+    kind: 'agent',
+    command: 'ollama',
+    args: ['run', 'qwen2.5:7b'],
+    accent: '#e5e7eb',
+    description: 'Модел на този компютър — без ключ и без интернет.'
+  },
+  {
     id: 'powershell',
     title: 'PowerShell',
     icon: '›',

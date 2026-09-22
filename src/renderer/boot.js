@@ -4,39 +4,8 @@ import { createCommandBar } from './command-bar.js'
 import { createToasts } from './toast.js'
 import { createMinimap } from './minimap.js'
 import { createSpeaker } from './speaker.js'
-
-const WELCOME = `Добре дошъл в работната станция.
-
-• Ctrl+K — командната лента долу
-• Ctrl+T — нов терминал
-• Ctrl+N — нова бележка
-• Ctrl+Shift+N — ново пространство
-• Ctrl+Alt+N — нова станция (отделен прозорец)
-• Ctrl+\` — обръща към следващата станция
-• Ctrl+1…9 и Ctrl+Tab — между пространствата
-• Ctrl+Shift+B — друг фон на случаен принцип
-• Ctrl+M — картата на платното долу вдясно
-• Ctrl+Shift+0 — побери всичко в екрана
-• Ctrl+Shift+G — подреди прозорците
-• Ctrl+Shift+E или двоен клик по заглавието —
-  разгъва прозореца върху близките до него
-• Ctrl+W — затвори избрания прозорец
-• Ctrl+Shift+Space — говори
-• Ctrl + колелце — мащаб, влачене по фона — местене
-
-Пространствата са колкото ти трябват — „+“ вдясно
-долу добавя ново. Празните не заемат памет.
-
-Отляво са програмите на този компютър и всички се отварят
-тук, вътре в станцията: агентите и обвивките като терминали,
-редакторът през своя serve-web, браузърът и файловете като
-прозорци на платното.
-
-Глас и ИИ, безплатно: отвори Настройки (Ctrl+K → „настройки“)
-и въведи безплатен ключ от Groq — той и чува, и мисли.
-Ако е фокусиран терминал, казаното отива в него; иначе
-става команда, а каквото лентата не знае, ИИ го разбира
-и ти отговаря на глас, на български.`
+import { createOverview } from './overview.js'
+import { createKeymap } from './keymap.js'
 
 async function boot() {
   const viewport = document.getElementById('viewport')
@@ -47,21 +16,65 @@ async function boot() {
   const home = await window.w20.home()
   const station = await window.w20.station.info()
 
-  if (station) document.getElementById('station').textContent = `СТАНЦИЯ ${station.id}`
+  const badge = document.getElementById('station')
   mountFlip()
 
   const toast = createToasts(root)
   const speaker = createSpeaker({ toast })
   const canvas = createCanvas(viewport, plane)
-  const desktop = createDesktop({ plane, canvas, programs: info.programs, home, speaker })
+
+  // Fields stay clear of the dock on the left and the bar at the bottom.
+  // Measured when laid out, so a narrower dock gives the fields its width.
+  let dockEl = null
+  let barEl = null
+  function insets() {
+    const view = viewport.getBoundingClientRect()
+    const dock = dockEl ? dockEl.getBoundingClientRect() : null
+    const bar = barEl ? barEl.getBoundingClientRect() : null
+    return {
+      left: dock && dock.width ? Math.round(dock.right - view.left + 14) : 16,
+      top: 14,
+      right: 14,
+      bottom: bar && bar.height ? Math.round(view.bottom - bar.top + 12) : 96
+    }
+  }
+
+  const desktop = createDesktop({
+    plane,
+    canvas,
+    programs: info.programs,
+    home,
+    speaker,
+    insets,
+    notify: (message) => toast(message, { tone: 'warn', timeout: 6000 })
+  })
 
   const saved = await window.w20.state.load()
   desktop.load(saved)
-  const firstRun = !saved
 
   const minimap = createMinimap({ root, desktop, canvas, viewport })
   const bar = createCommandBar({ root, desktop, programs: info.programs, canvas, toast, minimap, speaker })
-  buildDock(root, info.programs, desktop)
+  barEl = root.querySelector('.w20-bar-main')
+  dockEl = buildDock(root, info.programs, desktop)
+  const overview = createOverview({ root, desktop })
+  bar.onOverview(() => overview.toggle())
+  buildEmpty(root, info.programs, desktop, overview)
+
+  // Zooming out of a station is stepping back to see all of them.
+  canvas.onZoomOut(() => overview.show())
+
+  // Which station this is, in the title bar — and which Windows window, once
+  // there is more than one.
+  function drawBadge() {
+    const ws = desktop.activeWorkspace()
+    const windowTag = station && station.count > 1 ? ` · ПРОЗОРЕЦ ${station.id}` : ''
+    badge.textContent = `СТАНЦИЯ ${ws.name}${windowTag}`
+  }
+  desktop.onChange(drawBadge)
+  drawBadge()
+
+  // The dock and the bar exist now: lay the fields out around them.
+  desktop.relayout({ glide: false })
 
   if (!info.ptyAvailable) {
     toast(
@@ -71,132 +84,74 @@ async function boot() {
     )
   }
 
-  if (firstRun) {
-    desktop.openNote(WELCOME, { title: 'Начало', width: 420, height: 340 })
-    canvas.resetZoom()
-  }
-
   /* ------------------------------------------------------------ shortcuts */
 
+  const keymap = createKeymap({ desktop, bar, canvas, minimap, overview, toast, root, programs: info.programs })
   window.addEventListener('keydown', (e) => {
-    const ctrl = e.ctrlKey || e.metaKey
-    if (ctrl && e.code === 'KeyK') {
-      e.preventDefault()
-      bar.focus()
-      return
-    }
-    if (ctrl && e.code === 'KeyT') {
-      e.preventDefault()
-      desktop.openTerminal()
-      return
-    }
-    // Closes the window the user last touched — the same Ctrl+W the titlebar
-    // has always promised.
-    if (ctrl && !e.shiftKey && e.code === 'KeyW') {
-      e.preventDefault()
-      const closed = desktop.closeFocused()
-      if (!closed) toast('Нищо не е избрано — щракни върху прозорец', { timeout: 2200 })
-      return
-    }
-    // Grow the selected window over the small ones beside it, and back.
-    if (ctrl && e.shiftKey && e.code === 'KeyE') {
-      e.preventDefault()
-      const grown = desktop.expand()
-      if (!grown) toast('Нищо не е избрано — щракни върху прозорец', { timeout: 2200 })
-      else if (!grown.expanded) toast(`„${grown.title}“ се сви обратно`, { timeout: 2000 })
-      else
-        toast(
-          grown.covered
-            ? `„${grown.title}“ побра ${grown.covered} ${grown.covered === 1 ? 'съседен прозорец' : 'съседни прозореца'}`
-            : `„${grown.title}“ е разгънат — няма близки прозорци`,
-          { timeout: 2600 }
-        )
-      return
-    }
-    if (ctrl && e.code === 'KeyM') {
-      e.preventDefault()
-      toast(minimap.toggle() ? 'Картата е включена' : 'Картата е скрита', { timeout: 1600 })
-      return
-    }
-    // Tidy the workspace into a grid. Shift, so a stray Ctrl+G never moves
-    // three hundred windows by accident.
-    if (ctrl && e.shiftKey && e.code === 'KeyG') {
-      e.preventDefault()
-      const count = desktop.tidy()
-      toast(count ? `Подредени ${count} прозореца` : 'Пространството е празно', { timeout: 2200 })
-      return
-    }
-    if (ctrl && e.shiftKey && e.code === 'Digit0') {
-      e.preventDefault()
-      const fit = desktop.fitAll()
-      if (!fit) toast('Няма какво да се побере — пространството е празно', { timeout: 2200 })
-      else if (!fit.fits) {
-        minimap.setVisible(true)
-        toast('Платното е по-широко от най-далечния мащаб — картата показва останалото', {
-          tone: 'warn',
-          timeout: 4000
-        })
-      }
-      return
-    }
-    if (ctrl && e.shiftKey && e.code === 'Space') {
-      e.preventDefault()
-      bar.toggleVoice()
-      return
-    }
-    // Turn to the next station. Matched on the physical key, so it works the
-    // same on a Bulgarian layout as on a Latin one.
-    if (ctrl && e.code === 'Backquote') {
-      e.preventDefault()
-      window.w20.station.cycle(e.shiftKey ? -1 : 1)
-      return
-    }
-    // A whole second workstation, not another workspace inside this one.
-    if (ctrl && e.altKey && e.code === 'KeyN') {
-      e.preventDefault()
-      window.w20.station.open()
-      return
-    }
-    if (ctrl && e.shiftKey && e.code === 'KeyN') {
-      e.preventDefault()
-      desktop.addWorkspace()
-      return
-    }
-    if (ctrl && e.code === 'KeyN') {
-      e.preventDefault()
-      desktop.openNote()
-      return
-    }
-    if (ctrl && e.shiftKey && e.code === 'KeyB') {
-      e.preventDefault()
-      const paper = desktop.randomWallpaper()
-      toast(`Фон: ${paper.label}`, { timeout: 2200 })
-      return
-    }
-    if (ctrl && e.key === 'Tab') {
-      e.preventDefault()
-      desktop.step(e.shiftKey ? -1 : 1)
-      return
-    }
-    // Only the first nine get a digit; past that the strip and Ctrl+Tab carry it.
-    if (ctrl && /^[1-9]$/.test(e.key)) {
-      e.preventDefault()
-      desktop.switchTo(Number(e.key) - 1)
-      return
-    }
-    if (ctrl && (e.key === '=' || e.key === '+')) {
-      e.preventDefault()
-      canvas.zoomIn()
-    } else if (ctrl && e.key === '-') {
-      e.preventDefault()
-      canvas.zoomOut()
-    } else if (ctrl && e.key === '0') {
-      e.preventDefault()
-      canvas.resetZoom()
-    }
+    if (overview.open) return
+    keymap.handle(e)
   })
 
   document.body.classList.remove('is-booting')
+}
+
+/**
+ * What an empty station shows: the things worth opening, one click each, and
+ * the keys that open them. Hidden as soon as the station has a window.
+ */
+function buildEmpty(root, programs, desktop, overview) {
+  const el = document.createElement('div')
+  el.className = 'w20-empty'
+  el.innerHTML = `
+    <div class="w20-empty-card">
+      <h2 class="w20-empty-title"></h2>
+      <p class="w20-empty-sub">До 4 полета, по 4 прозореца във всяко. Всичко се подрежда само.</p>
+      <div class="w20-empty-grid" data-role="grid"></div>
+      <p class="w20-empty-keys">
+        <span><kbd>F3</kbd> всички станции</span>
+        <span><kbd>Ctrl+K</kbd> команди и ИИ</span>
+        <span><kbd>Ctrl+Space</kbd> водещ клавиш</span>
+        <span><kbd>F1</kbd> всички клавиши</span>
+      </p>
+    </div>
+  `
+  root.appendChild(el)
+  const grid = el.querySelector('[data-role="grid"]')
+  const byId = (id) => programs.find((p) => p.id === id && p.installed)
+
+  const choices = [
+    { icon: '›_', label: 'Терминал', key: 'Ctrl+T', accent: '#5ee0ff', run: () => desktop.openTerminal() },
+    ...['claude', 'gemini', 'codex', 'aider', 'opencode', 'qwen']
+      .map(byId)
+      .filter(Boolean)
+      .slice(0, 3)
+      .map((p) => ({ icon: p.icon, label: p.title, accent: p.accent, run: () => desktop.openProgram(p) })),
+    { icon: '◎', label: 'Браузър', key: 'Ctrl+Space B', accent: '#4caf50', run: () => desktop.openWeb() },
+    { icon: '▤', label: 'Файлове', key: 'Ctrl+Space F', accent: '#ffd166', run: () => desktop.openFiles() },
+    { icon: '✎', label: 'Бележка', key: 'Ctrl+N', accent: '#ffd166', run: () => desktop.openNote() },
+    { icon: '▦', label: 'Всички станции', key: 'F3', accent: '#c4b5fd', run: () => overview.show() },
+    { icon: '⚙', label: 'Глас и ИИ', key: 'безплатно', accent: '#9aa2b1', run: () => desktop.openSettings() }
+  ].slice(0, 8)
+
+  for (const choice of choices) {
+    const btn = document.createElement('button')
+    btn.className = 'w20-empty-btn'
+    btn.style.setProperty('--node-accent', choice.accent)
+    btn.innerHTML = `<b></b><span></span>${choice.key ? '<kbd></kbd>' : ''}`
+    btn.querySelector('b').textContent = choice.icon
+    btn.querySelector('span').textContent = choice.label
+    if (choice.key) btn.querySelector('kbd').textContent = choice.key
+    btn.addEventListener('click', choice.run)
+    grid.appendChild(btn)
+  }
+
+  function sync() {
+    const ws = desktop.activeWorkspace()
+    el.hidden = !(ws.layout === 'fields' && ws.nodes.length === 0)
+    el.querySelector('.w20-empty-title').textContent = `Станция ${ws.name}`
+  }
+  desktop.onChange(sync)
+  sync()
 }
 
 /**
@@ -255,6 +210,7 @@ function buildDock(root, programs, desktop) {
   }
 
   root.appendChild(dock)
+  return dock
 }
 
 boot().catch((err) => {

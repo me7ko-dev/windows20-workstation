@@ -178,6 +178,13 @@ body.is-booting .w20-shell {
   top: 0;
   left: 0;
   transform-origin: 0 0;
+}
+
+/* A layer only while moving. A plane kept on its own layer is rasterised once
+   at whatever scale it had and then stretched — the blur in terminal text after
+   a zoom. Without it, the settled plane is painted again, at its real size. */
+.w20-viewport.is-moving .w20-plane,
+.w20-plane.is-jumping {
   will-change: transform;
 }
 
@@ -219,7 +226,6 @@ body.is-booting .w20-shell {
   border: 1px solid var(--border);
   box-shadow: 0 24px 70px rgba(0, 0, 0, 0.55), 0 0 0 1px rgba(0, 0, 0, 0.4);
   overflow: hidden;
-  backdrop-filter: blur(18px);
 }
 
 /* Out of view: keep the box — a terminal measures its columns from it — but
@@ -510,9 +516,12 @@ body.is-booting .w20-shell {
 
 .w20-bar {
   position: absolute;
-  left: 50%;
+  /* Centred by margins, not translateX(-50%): half a pixel of offset is
+     enough to blur every letter in the bar. */
+  left: 0;
+  right: 0;
+  margin: 0 auto;
   bottom: 22px;
-  transform: translateX(-50%);
   width: min(720px, calc(100% - 80px));
   z-index: 100;
 }
@@ -805,6 +814,23 @@ body.is-booting .w20-shell {
 
 .w20-bar-tabs::-webkit-scrollbar {
   display: none;
+}
+
+.w20-bar-all {
+  width: 26px;
+  height: 26px;
+  flex-shrink: 0;
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+  color: var(--text);
+  font-size: 13px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.w20-bar-all:hover {
+  border-color: var(--accent);
 }
 
 .w20-bar-add {
@@ -1145,4 +1171,613 @@ body.is-booting .w20-shell {
 
 .w20-settings [hidden] {
   display: none !important;
+}
+
+/* =============================================================== fields */
+
+/* The station's picture is the backdrop in fields; the dot grid is for the
+   free canvas, where it shows movement. */
+body.is-fields .w20-plane-bg,
+body.is-fields .w20-map {
+  display: none;
+}
+
+body.is-fields .w20-viewport {
+  cursor: default;
+}
+
+.w20-fields {
+  position: absolute;
+  inset: 0 auto auto 0;
+  pointer-events: none;
+}
+
+.w20-field-frame {
+  position: absolute;
+  top: 0;
+  left: 0;
+  border-radius: 18px;
+  background: rgba(8, 10, 16, 0.18);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  transition: border-color 160ms ease, background 160ms ease;
+}
+
+.w20-field-frame.is-current {
+  border-color: color-mix(in srgb, var(--accent) 45%, transparent);
+  background: color-mix(in srgb, var(--accent) 5%, rgba(8, 10, 16, 0.18));
+}
+
+.w20-field-tag {
+  position: absolute;
+  top: -9px;
+  right: 16px;
+  padding: 1px 8px;
+  border-radius: 999px;
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  color: var(--text);
+  background: rgba(10, 12, 18, 0.9);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  z-index: 1;
+}
+
+.w20-field-tag small {
+  margin-left: 5px;
+  font-weight: 500;
+  color: var(--text-muted);
+}
+
+.w20-field-frame.is-current .w20-field-tag {
+  border-color: color-mix(in srgb, var(--accent) 60%, transparent);
+}
+
+/* Tiled windows: sharp-edged enough to sit side by side, no grip to pull. */
+.w20-window.is-tiled {
+  border-radius: 12px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.45);
+}
+
+.w20-window.is-tiled .w20-window-grip {
+  display: none;
+}
+
+.w20-window.is-tiled.is-dragging {
+  opacity: 0.85;
+  z-index: 9999 !important;
+}
+
+/* Only the position glides. A size that animated would resize a terminal —
+   and the program in it — a dozen times on the way. */
+.w20-window.is-tiled.is-settling {
+  transition: transform 260ms cubic-bezier(0.2, 0.8, 0.3, 1);
+}
+
+.w20-window.is-solo-hidden {
+  visibility: hidden;
+}
+
+/* The window the keys go to. */
+.w20-window.is-focused {
+  border-color: color-mix(in srgb, var(--node-accent) 70%, transparent);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--node-accent) 45%, transparent), 0 14px 40px rgba(0, 0, 0, 0.5);
+}
+
+.w20-window.is-focused .w20-window-bar {
+  background: color-mix(in srgb, var(--node-accent) 10%, rgba(255, 255, 255, 0.03));
+}
+
+.w20-window-icon {
+  font-family: 'Cascadia Mono', Consolas, monospace;
+  font-size: 11px;
+  color: var(--node-accent);
+  opacity: 0.9;
+  flex-shrink: 0;
+}
+
+.w20-window-icon:empty {
+  display: none;
+}
+
+/* The dock in fields: icons only, so the fields get the width. */
+body.is-fields .w20-dock-label {
+  display: none;
+}
+
+body.is-fields .w20-dock-item {
+  justify-content: center;
+  padding: 6px;
+}
+
+/* ------------------------------------------------------- empty station */
+
+.w20-empty {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  pointer-events: none;
+  z-index: 5;
+}
+
+.w20-empty[hidden] {
+  display: none;
+}
+
+.w20-empty-card {
+  pointer-events: auto;
+  width: min(640px, calc(100% - 200px));
+  padding: 26px 28px 22px;
+  border-radius: 22px;
+  background: rgba(10, 12, 18, 0.62);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  backdrop-filter: blur(22px) saturate(1.2);
+  box-shadow: 0 30px 80px rgba(0, 0, 0, 0.5);
+  text-align: center;
+}
+
+.w20-empty-title {
+  margin: 0 0 4px;
+  font-size: 22px;
+  font-weight: 650;
+  letter-spacing: 0.01em;
+}
+
+.w20-empty-sub {
+  margin: 0 0 18px;
+  font-size: 12.5px;
+  color: var(--text-muted);
+}
+
+.w20-empty-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 8px;
+}
+
+.w20-empty-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 14px 8px 11px;
+  border-radius: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--text);
+  font: inherit;
+  font-size: 12.5px;
+  cursor: pointer;
+  transition: background 120ms ease, border-color 120ms ease, transform 120ms ease;
+}
+
+.w20-empty-btn:hover {
+  background: color-mix(in srgb, var(--node-accent, var(--accent)) 16%, transparent);
+  border-color: color-mix(in srgb, var(--node-accent, var(--accent)) 50%, transparent);
+  transform: translateY(-1px);
+}
+
+.w20-empty-btn b {
+  font-family: 'Cascadia Mono', Consolas, monospace;
+  font-size: 18px;
+  color: var(--node-accent, var(--accent));
+}
+
+.w20-empty-btn kbd,
+.w20-empty-keys kbd {
+  font-family: inherit;
+  font-size: 10px;
+  color: var(--text-muted);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 5px;
+  padding: 0 5px;
+}
+
+.w20-empty-keys {
+  margin: 16px 0 0;
+  font-size: 11.5px;
+  color: var(--text-muted);
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 6px 14px;
+}
+
+/* ============================================================= overview */
+
+.w20-overview {
+  position: absolute;
+  inset: 0;
+  z-index: 150;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  overflow-y: auto;
+  padding: 0 0 30px;
+  background: rgba(4, 5, 9, 0.72);
+  backdrop-filter: blur(26px) saturate(1.15);
+  opacity: 0;
+  transition: opacity 200ms ease;
+}
+
+.w20-overview.is-open {
+  opacity: 1;
+}
+
+.w20-overview[hidden] {
+  display: none;
+}
+
+.w20-overview-head {
+  flex-shrink: 0;
+  height: 86px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+
+.w20-overview-head h2 {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 650;
+  letter-spacing: 0.02em;
+}
+
+.w20-overview-head p {
+  margin: 0;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.w20-overview kbd {
+  font-family: inherit;
+  font-size: 10.5px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 5px;
+  padding: 0 5px;
+  color: var(--text);
+}
+
+.w20-overview-grid {
+  display: grid;
+  gap: 18px;
+  justify-content: center;
+  transform: scale(1.04);
+  transition: transform 240ms cubic-bezier(0.2, 0.8, 0.3, 1);
+}
+
+.w20-overview.is-open .w20-overview-grid {
+  transform: none;
+}
+
+.w20-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.w20-card-screen {
+  position: relative;
+  border-radius: 14px;
+  overflow: hidden;
+  background: #0a0c12 center / cover no-repeat;
+  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(255, 255, 255, 0.08);
+  transition: box-shadow 140ms ease, transform 140ms ease;
+}
+
+.w20-card.is-selected .w20-card-screen {
+  box-shadow: 0 22px 50px rgba(0, 0, 0, 0.6), 0 0 0 2px var(--card-accent, var(--accent));
+  transform: translateY(-2px);
+}
+
+.w20-card-here {
+  display: none;
+  padding: 0 7px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 650;
+  background: var(--card-accent, var(--accent));
+  color: #05060a;
+}
+
+.w20-card.is-current .w20-card-here {
+  display: inline-block;
+}
+
+.w20-card.is-opening .w20-card-screen {
+  transform: scale(1.06);
+}
+
+.w20-card-windows {
+  position: absolute;
+  inset: 0;
+}
+
+.w20-card-win {
+  position: absolute;
+  top: 0;
+  left: 0;
+  border-radius: 6px;
+  background: rgba(12, 14, 20, 0.86);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-top: 2px solid var(--node-accent);
+  overflow: hidden;
+}
+
+.w20-card-win-bar {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 5px;
+  font-size: 10px;
+  white-space: nowrap;
+  overflow: hidden;
+  color: var(--text);
+}
+
+.w20-card-win-bar b {
+  font-family: 'Cascadia Mono', Consolas, monospace;
+  font-weight: 400;
+  color: var(--node-accent);
+}
+
+.w20-card-win-bar span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* A terminal reads as one from across the room: a few lines of green text. */
+.w20-card-win-lines {
+  position: absolute;
+  inset: 20px 6px 6px;
+  background: repeating-linear-gradient(
+    to bottom,
+    color-mix(in srgb, var(--node-accent) 45%, transparent) 0 2px,
+    transparent 2px 7px
+  );
+  mask-image: linear-gradient(90deg, #000 45%, transparent 90%);
+  opacity: 0.55;
+}
+
+.w20-card-empty {
+  position: absolute;
+  inset: auto 0 12px;
+  text-align: center;
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.72);
+  text-shadow: 0 1px 6px rgba(0, 0, 0, 0.8);
+}
+
+.w20-card-label {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 0 4px;
+  min-height: 20px;
+}
+
+.w20-card-num {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--card-accent, var(--accent));
+  font-variant-numeric: tabular-nums;
+}
+
+.w20-card-name {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.w20-card-meta {
+  flex: 1;
+  font-size: 11.5px;
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.w20-card-close {
+  font-size: 11px;
+  color: var(--text-muted);
+  padding: 0 6px;
+  border-radius: 6px;
+  opacity: 0;
+}
+
+.w20-card:hover .w20-card-close,
+.w20-card-close.is-armed {
+  opacity: 1;
+}
+
+.w20-card-close:hover,
+.w20-card-close.is-armed {
+  color: #ff9b9b;
+  background: rgba(255, 90, 90, 0.16);
+}
+
+.w20-card--add .w20-card-screen {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px dashed rgba(255, 255, 255, 0.18);
+  box-shadow: none;
+}
+
+.w20-card--add span {
+  font-size: 34px;
+  font-weight: 300;
+  color: var(--text-muted);
+}
+
+.w20-card--add small {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.w20-card--add.is-selected .w20-card-screen {
+  border-color: var(--accent);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .w20-overview,
+  .w20-overview-grid,
+  .w20-card-screen {
+    transition: none;
+  }
+}
+
+/* ============================================================ leader HUD */
+
+.w20-leader {
+  position: absolute;
+  left: 0;
+  right: 0;
+  margin: 0 auto;
+  bottom: 96px;
+  width: max-content;
+  max-width: calc(100% - 60px);
+  padding: 9px 14px;
+  border-radius: 12px;
+  background: rgba(10, 12, 18, 0.92);
+  border: 1px solid color-mix(in srgb, var(--accent) 50%, transparent);
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.5);
+  font-size: 12px;
+  color: var(--text-muted);
+  z-index: 180;
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+
+.w20-leader[hidden] {
+  display: none;
+}
+
+.w20-leader b {
+  color: var(--accent);
+  font-weight: 650;
+}
+
+.w20-leader kbd,
+.w20-sheet kbd {
+  font-family: inherit;
+  font-size: 10.5px;
+  color: var(--text);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-bottom-width: 2px;
+  border-radius: 5px;
+  padding: 0 5px;
+  background: rgba(255, 255, 255, 0.04);
+  white-space: nowrap;
+}
+
+/* ========================================================== cheat sheet */
+
+.w20-sheet {
+  position: absolute;
+  inset: 0;
+  z-index: 190;
+  display: grid;
+  place-items: center;
+  background: rgba(3, 4, 8, 0.6);
+  backdrop-filter: blur(10px);
+}
+
+.w20-sheet[hidden] {
+  display: none;
+}
+
+.w20-sheet-card {
+  width: min(1180px, calc(100% - 60px));
+  max-height: calc(100% - 60px);
+  overflow-y: auto;
+  padding: 22px 26px;
+  border-radius: 20px;
+  background: rgba(12, 14, 20, 0.95);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  box-shadow: 0 30px 80px rgba(0, 0, 0, 0.6);
+}
+
+.w20-sheet-card header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  margin-bottom: 12px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.w20-sheet-card h2 {
+  margin: 0;
+  font-size: 19px;
+  color: var(--text);
+}
+
+.w20-sheet-cols {
+  columns: 3 320px;
+  column-gap: 30px;
+}
+
+.w20-sheet-cols section {
+  break-inside: avoid;
+  margin-bottom: 16px;
+}
+
+.w20-sheet-cols h3 {
+  margin: 0 0 6px;
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+
+.w20-sheet-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 4px 0;
+  font-size: 12.5px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+}
+
+.w20-sheet-row span:last-child {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.w20-sheet-note {
+  margin: 8px 0 0;
+  font-size: 11.5px;
+  color: var(--text-muted);
+  line-height: 1.5;
+}
+
+.w20-check {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  font-size: 11.5px;
+  color: var(--text-muted);
+  line-height: 1.4;
+  cursor: pointer;
+}
+
+.w20-check input {
+  margin: 2px 0 0;
+  accent-color: var(--accent);
 }

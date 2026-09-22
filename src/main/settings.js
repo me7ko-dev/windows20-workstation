@@ -32,7 +32,9 @@ function createSettings(userDataDir) {
     ai: {
       provider: 'groq',
       model: '',
-      endpoint: ''
+      endpoint: '',
+      // When the chosen service is out of free requests, try the others.
+      fallback: true
     },
     // Speaking back.
     speech: {
@@ -109,6 +111,7 @@ function createSettings(userDataDir) {
         provider: state.ai.provider,
         model: state.ai.model,
         endpoint: state.ai.endpoint,
+        fallback: state.ai.fallback !== false,
         hasKey: hasKey[state.ai.provider] || false,
         ready: ready(state.ai.provider, state) && (state.ai.provider !== 'custom' || Boolean(state.ai.endpoint))
       },

@@ -4,14 +4,18 @@
  * would leak agents nobody can see any more.
  */
 
+import { isStationKey } from '../keymap.js'
+
 const { Terminal } = window
 const { FitAddon } = window.FitAddon || {}
 
 export function mountTerminal(win, { cwd, shell, args, onExit }) {
   const term = new Terminal({
-    fontFamily: 'Cascadia Code, JetBrains Mono, Consolas, monospace',
-    fontSize: 13,
-    lineHeight: 1.2,
+    fontFamily: "'Cascadia Mono', 'Cascadia Code', 'JetBrains Mono', Consolas, monospace",
+    fontSize: 14,
+    lineHeight: 1.22,
+    fontWeight: '400',
+    fontWeightBold: '700',
     cursorBlink: true,
     allowProposedApi: true,
     // Scrollback is the one part of a terminal that grows without bound. At
@@ -24,6 +28,29 @@ export function mountTerminal(win, { cwd, shell, args, onExit }) {
       cursor: '#5ee0ff',
       selectionBackground: 'rgba(94,224,255,0.25)'
     }
+  })
+
+  // The station's keys pass through; everything else is the program's. Plus
+  // copy and paste the way Windows Terminal does them: Ctrl+C copies when
+  // there is a selection (and stops the process when there is not), Ctrl+V
+  // pastes, and Ctrl+Shift+C / Ctrl+Shift+V always do.
+  term.attachCustomKeyEventHandler((e) => {
+    if (e.type !== 'keydown') return true
+    if (isStationKey(e)) return false
+    const ctrl = e.ctrlKey || e.metaKey
+    if (ctrl && e.code === 'KeyC' && (e.shiftKey || term.hasSelection())) {
+      if (term.hasSelection()) window.w20.clipboard.write(term.getSelection())
+      term.clearSelection()
+      e.preventDefault()
+      return false
+    }
+    if (ctrl && e.code === 'KeyV' && !e.altKey) {
+      const text = window.w20.clipboard.read()
+      if (text) term.paste(text)
+      e.preventDefault()
+      return false
+    }
+    return true
   })
 
   const fit = FitAddon ? new FitAddon() : null
@@ -48,7 +75,7 @@ export function mountTerminal(win, { cwd, shell, args, onExit }) {
   }
 
   window.w20.term
-    .create({ id, cwd, shell, args, cols: term.cols || 80, rows: term.rows || 24 })
+    .create({ id, cwd, shell, args, programId: win.node.programId, cols: term.cols || 80, rows: term.rows || 24 })
     .then((result) => {
       if (result.ok) {
         win.setBadge('работи', 'live')

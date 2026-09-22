@@ -1,6 +1,7 @@
 'use strict'
 
 const { PROVIDERS } = require('./providers')
+const models = require('./models')
 
 /**
  * Speech to text.
@@ -38,17 +39,32 @@ async function transcribe({ audio, mimeType }, settings) {
     return { ok: false, error: `Няма адрес за услугата „${config.provider}“. Попълни го в Настройки.` }
   }
 
-  const form = new FormData()
-  form.append('file', new Blob([audio], { type: mimeType || 'audio/webm' }), 'speech.webm')
-  form.append('model', config.model || (known && known.sttModel) || 'whisper-1')
-  if (config.language) form.append('language', config.language)
-
-  try {
-    const response = await fetch(endpoint, {
+  const send = (model) => {
+    const form = new FormData()
+    form.append('file', new Blob([audio], { type: mimeType || 'audio/webm' }), 'speech.webm')
+    form.append('model', model)
+    if (config.language) form.append('language', config.language)
+    return fetch(endpoint, {
       method: 'POST',
       headers: apiKey ? { Authorization: `Bearer ${apiKey}` } : {},
       body: form
     })
+  }
+
+  try {
+    const model =
+      config.model || models.remembered(config.provider, 'stt') || (known && known.sttModel) || 'whisper-1'
+    let response = await send(model)
+
+    // A retired model: ask the service which Whisper it serves now.
+    if (!response.ok && known && known.sttPrefer) {
+      const detail = await response.clone().text()
+      if (models.modelIsGone(response.status, detail)) {
+        const base = config.endpoint ? endpoint.replace(/\/audio\/transcriptions$/, '') : known.baseUrl
+        const next = await models.discover(config.provider, 'stt', base, apiKey, known.sttPrefer)
+        if (next && next !== model) response = await send(next)
+      }
+    }
 
     if (!response.ok) {
       const detail = await response.text()

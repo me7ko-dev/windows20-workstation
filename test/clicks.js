@@ -369,7 +369,26 @@ async function main() {
     ['`', { code: 'Backquote' }, 'следваща станция'],
     ['`', { shift: true, code: 'Backquote' }, 'предишна станция'],
     [' ', { shift: true, code: 'Space' }, 'говори'],
-    ['n', { alt: true }, 'нова станция']
+    ['n', { alt: true }, 'нов прозорец на Windows'],
+    ['F3', { ctrl: false, code: 'F3' }, 'всички станции'],
+    ['Escape', { ctrl: false, code: 'Escape' }, 'назад от всички станции'],
+    ['F1', { ctrl: false, code: 'F1' }, 'шпаргалка'],
+    ['Escape', { ctrl: false, code: 'Escape' }, 'затвори шпаргалката'],
+    [' ', { code: 'Space' }, 'водещ клавиш'],
+    ['t', { ctrl: false }, 'водещ → терминал'],
+    [' ', { code: 'Space' }, 'водещ клавиш пак'],
+    ['q', { ctrl: false }, 'водещ → непознато'],
+    ['ArrowLeft', { ctrl: false, alt: true, code: 'ArrowLeft' }, 'фокус наляво'],
+    ['ArrowRight', { ctrl: false, alt: true, code: 'ArrowRight' }, 'фокус надясно'],
+    ['ArrowDown', { ctrl: false, alt: true, shift: true, code: 'ArrowDown' }, 'размени надолу'],
+    ['1', { ctrl: false, alt: true }, 'поле 1'],
+    ['4', { ctrl: false, alt: true }, 'поле 4'],
+    ['t', { alt: true }, 'терминал в същото поле'],
+    ['l', { shift: true }, 'свободно платно'],
+    ['l', { shift: true }, 'обратно в полета'],
+    ['k', { shift: true }, 'лентата от терминал'],
+    ['/', { code: 'Slash' }, 'шпаргалка с Ctrl+/'],
+    ['Escape', { ctrl: false, code: 'Escape' }, 'затвори шпаргалката пак']
   ]
 
   console.log(`\n— клавишите: ${keys.length} комбинации —`)
@@ -652,6 +671,79 @@ async function main() {
     console.log(`  ${errs.length ? 'ГРЕШКА' : 'ok'}  ${what}${errs.length ? ' — ' + errs[0] : ''}`)
   }
 
+  /* ========================================================= the fields */
+
+  console.log('\n— полетата 4 × 4 и всички станции —')
+  await run(`window.__t.clear(); return true`)
+  await sleep(400)
+  await run(`window.__t.key('1'); return true`)
+  await sleep(300)
+  for (let i = 0; i < 4; i += 1) {
+    await run(`window.__t.key('t'); return true`)
+    await sleep(150)
+  }
+  await sleep(400)
+  const four = await run(`return {
+    frames: window.__t.layer().querySelectorAll('.w20-field-frame').length,
+    plane: document.getElementById('plane').style.transform
+  }`)
+  expect('четири прозореца — четири полета', four.frames === 4, JSON.stringify(four))
+  expect('в полетата нищо не е мащабирано', !/scale/.test(four.plane), four.plane)
+
+  for (let i = 0; i < 14; i += 1) {
+    await run(`window.__t.key('t'); return true`)
+    await sleep(120)
+  }
+  await sleep(500)
+  const full = await run(`
+    const wins = window.__t.nodes().map((el) => el.getBoundingClientRect())
+    let overlap = false
+    for (let a = 0; a < wins.length; a += 1)
+      for (let b = a + 1; b < wins.length; b += 1) {
+        const p = wins[a], q = wins[b]
+        if (p.left < q.right - 1 && q.left < p.right - 1 && p.top < q.bottom - 1 && q.top < p.bottom - 1) overlap = true
+      }
+    const whole = window.__t.nodes().every((el) => {
+      const nums = el.style.transform.match(/-?[0-9.]+/g) || []
+      return el.style.transform.startsWith('translate(') && nums.length === 2 && nums.every((n) => Number.isInteger(Number(n)))
+    })
+    return { count: wins.length, overlap, whole, toast: [...document.querySelectorAll('.w20-toast-text')].some((t) => t.textContent.includes('пълна')) }`)
+  expect('станцията спира на 16 прозореца', full.count === 16, String(full.count))
+  expect('пълна станция го казва', full.toast)
+  expect('полетата не се застъпват', !full.overlap)
+  expect('прозорците стоят на цели пиксели', full.whole)
+
+  await run(`window.dispatchEvent(new KeyboardEvent('keydown', { key: 'F3', code: 'F3', bubbles: true })); return true`)
+  await sleep(600)
+  const cards = await run(`return { cards: document.querySelectorAll('.w20-card').length, stations: document.querySelectorAll('.w20-tab').length }`)
+  expect('всички станции — карта за всяка и „+“', cards.cards === cards.stations + 1, JSON.stringify(cards))
+  await run(`window.dispatchEvent(new KeyboardEvent('keydown', { key: '2', code: 'Digit2', bubbles: true })); return true`)
+  await sleep(500)
+  const now = await run(`return [...document.querySelectorAll('.w20-tab')].findIndex((t) => t.classList.contains('is-active'))`)
+  expect('цифра в общия изглед влиза в станцията', now === 1, String(now))
+
+  const owned = await run(`
+    const m = await import('./keymap.js')
+    return {
+      shellW: m.isStationKey({ ctrlKey: true, code: 'KeyW' }),
+      shellC: m.isStationKey({ ctrlKey: true, code: 'KeyC' }),
+      stationW: m.isStationKey({ ctrlKey: true, shiftKey: true, code: 'KeyW' }),
+      overview: m.isStationKey({ code: 'F3' })
+    }`)
+  expect('в терминал Ctrl+W и Ctrl+C са на програмата', !owned.shellW && !owned.shellC, JSON.stringify(owned))
+  expect('Ctrl+Shift+W и F3 са на станцията и в терминал', owned.stationW && owned.overview)
+
+  await run(`
+    document.activeElement && document.activeElement.blur()
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'л', code: 'KeyK', ctrlKey: true, bubbles: true }))
+    return true`)
+  await sleep(200)
+  const barFocused = await run(`return document.activeElement === document.querySelector('.w20-bar-input')`)
+  expect('Ctrl+K работи и на българска подредба', barFocused)
+  await run(`document.querySelector('.w20-bar-input').blur(); return true`)
+  did('полета, пълна станция, всички станции, клавиши в терминал, кирилица')
+  await drain('полетата')
+
   /* ============================================================ the ИИ */
 
   console.log('\n— ИИ навигацията —')
@@ -690,7 +782,7 @@ async function main() {
   await ask('затвори пространството')
   const tabsAfter = await run(`return document.querySelectorAll('.w20-tab').length`)
   const waiting = await run(`return document.querySelector('.w20-bar-input').value`)
-  expect('необратимото чака Enter', tabsAfter === tabsBefore && waiting.startsWith('Затвори пространство'), waiting)
+  expect('необратимото чака Enter', tabsAfter === tabsBefore && waiting.startsWith('Затвори станция'), waiting)
   await run(`document.querySelector('.w20-bar-input').value = ''; document.querySelector('.w20-bar-input').blur(); return true`)
 
   did('ИИ: бележка, измислена команда, необратима команда')

@@ -6,7 +6,7 @@
 
 let topZ = 10
 
-export function createNodeWindow({ node, canvas, plane, onChange, onClose, onFocus, onExpand }) {
+export function createNodeWindow({ node, canvas, plane, onChange, onClose, onFocus, onExpand, onDrop, icon }) {
   const el = document.createElement('section')
   el.className = `w20-window w20-window--${node.type}`
   el.dataset.nodeId = node.id
@@ -15,6 +15,7 @@ export function createNodeWindow({ node, canvas, plane, onChange, onClose, onFoc
   el.innerHTML = `
     <header class="w20-window-bar" data-role="bar">
       <span class="w20-window-dot"></span>
+      <span class="w20-window-icon" data-role="icon"></span>
       <span class="w20-window-title" data-role="title"></span>
       <span class="w20-window-badge" data-role="badge"></span>
       <button class="w20-window-close" data-role="close" title="Затвори (Ctrl+W)">✕</button>
@@ -30,12 +31,18 @@ export function createNodeWindow({ node, canvas, plane, onChange, onClose, onFoc
   const gripEl = el.querySelector('[data-role="grip"]')
 
   titleEl.textContent = node.title
+  el.querySelector('[data-role="icon"]').textContent = icon || ''
   let offscreen = false
+  // Tiled: laid out by the station's fields, not placed by hand. Dragging then
+  // means "put it somewhere else", and there is no resize grip to pull.
+  let tiled = false
 
   function place() {
-    el.style.transform = `translate3d(${node.x}px, ${node.y}px, 0)`
-    el.style.width = `${node.width}px`
-    el.style.height = `${node.height}px`
+    // Whole pixels and a 2D transform — a window half a pixel off the grid, or
+    // on a layer of its own, renders its text soft.
+    el.style.transform = `translate(${Math.round(node.x)}px, ${Math.round(node.y)}px)`
+    el.style.width = `${Math.round(node.width)}px`
+    el.style.height = `${Math.round(node.height)}px`
   }
   place()
 
@@ -95,14 +102,21 @@ export function createNodeWindow({ node, canvas, plane, onChange, onClose, onFoc
 
   function endDrag(e) {
     if (!drag || drag.id !== e.pointerId) return
+    const moved = Math.hypot(e.clientX - drag.startX, e.clientY - drag.startY) > 6
     drag = null
-    place()
     el.classList.remove('is-dragging')
     try {
       barEl.releasePointerCapture(e.pointerId)
     } catch {
       // already released
     }
+    if (tiled) {
+      // The station decides where it lands; a click on the title is not a move.
+      if (moved && onDrop) onDrop(node, e.clientX, e.clientY)
+      else onChange({ relayout: true })
+      return
+    }
+    place()
     onChange()
   }
   barEl.addEventListener('pointerup', endDrag)
@@ -204,6 +218,12 @@ export function createNodeWindow({ node, canvas, plane, onChange, onClose, onFoc
      * `display`, because a terminal that loses its box also loses the column
      * count it measured — it would come back reflowed to nonsense.
      */
+    setTiled: (flag) => {
+      tiled = Boolean(flag)
+      el.classList.toggle('is-tiled', tiled)
+    },
+    setFocused: (flag) => el.classList.toggle('is-focused', Boolean(flag)),
+    setHidden: (flag) => el.classList.toggle('is-solo-hidden', Boolean(flag)),
     setOffscreen: (flag) => {
       if (offscreen === flag) return
       offscreen = flag

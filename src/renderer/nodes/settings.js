@@ -58,6 +58,10 @@ export function mountSettings(win, { speaker, onSaved, openWeb } = {}) {
       <span>Адрес</span>
       <input type="text" data-role="ai-endpoint" placeholder="http://localhost:1234/v1" spellcheck="false" />
     </label>
+    <label class="w20-check">
+      <input type="checkbox" data-role="ai-fallback" />
+      <span>Свърши ли безплатният лимит — пробвай другите услуги с ключ и Ollama</span>
+    </label>
 
     <h3 class="w20-settings-section">Говорене — отговорът на глас</h3>
     <label class="w20-field">
@@ -181,6 +185,7 @@ export function mountSettings(win, { speaker, onSaved, openWeb } = {}) {
     $('ai-provider').value = state.ai.provider
     $('ai-model').value = state.ai.model
     $('ai-endpoint').value = state.ai.endpoint
+    $('ai-fallback').checked = state.ai.fallback !== false
     $('speech-engine').value = state.speech.engine
     $('speech-rate').value = String(state.speech.rate || 1)
     $('azure-region').value = state.speech.azureRegion
@@ -217,7 +222,8 @@ export function mountSettings(win, { speaker, onSaved, openWeb } = {}) {
       ai: {
         provider: aiProvider,
         model: $('ai-model').value.trim(),
-        endpoint: $('ai-endpoint').value.trim()
+        endpoint: $('ai-endpoint').value.trim(),
+        fallback: $('ai-fallback').checked
       },
       speech: {
         engine: $('speech-engine').value,

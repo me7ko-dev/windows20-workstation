@@ -19,8 +19,9 @@ export function createCommandBar({ root, desktop, programs, canvas, toast, minim
       <input class="w20-bar-input" data-role="input" placeholder="Напиши команда…" spellcheck="false" />
       <span class="w20-bar-hint">Ctrl+K</span>
       <span class="w20-bar-load" data-role="load"></span>
+      <button class="w20-bar-all" data-role="overview" title="Всички станции (F3)">▦</button>
       <div class="w20-bar-tabs" data-role="tabs"></div>
-      <button class="w20-bar-add" data-role="add" title="Ново пространство (Ctrl+Shift+N)">+</button>
+      <button class="w20-bar-add" data-role="add" title="Нова станция (Ctrl+Shift+N)">+</button>
     </div>
   `
   root.appendChild(el)
@@ -33,6 +34,8 @@ export function createCommandBar({ root, desktop, programs, canvas, toast, minim
   const addBtn = el.querySelector('[data-role="add"]')
 
   addBtn.addEventListener('click', () => desktop.addWorkspace())
+  let overviewHandler = null
+  el.querySelector('[data-role="overview"]').addEventListener('click', () => overviewHandler && overviewHandler())
 
   const voice = createVoice({
     onState: (state) => {
@@ -100,6 +103,30 @@ export function createCommandBar({ root, desktop, programs, canvas, toast, minim
         run: () => desktop.openTerminal()
       },
       {
+        id: 'new:same',
+        label: 'Нов терминал в същото поле',
+        hint: 'Ctrl+Alt+T',
+        keywords: ['терминал', 'поле', 'същото', 'terminal'],
+        run: () => desktop.openTerminal({ sameField: true })
+      },
+      {
+        id: 'view:overview',
+        label: 'Всички станции',
+        hint: 'F3 — назад, после избор',
+        keywords: ['всички', 'станции', 'назад', 'преглед', 'overview', 'обзор'],
+        run: () => overviewHandler && overviewHandler()
+      },
+      {
+        id: 'view:layout',
+        label: desktop.isTiled() ? 'Свободно платно за тази станция' : 'Полета за тази станция (4 × 4)',
+        hint: 'Ctrl+Shift+L',
+        keywords: ['полета', 'платно', 'layout', 'режим', 'свободно', 'подредба'],
+        run: () => {
+          const result = desktop.toggleLayout()
+          if (!result.ok) toast(result.reason, { tone: 'warn' })
+        }
+      },
+      {
         id: 'new:web',
         label: 'Нов браузър',
         hint: 'страница в прозорец на платното',
@@ -109,7 +136,7 @@ export function createCommandBar({ root, desktop, programs, canvas, toast, minim
       {
         id: 'new:files',
         label: 'Нов файлов прозорец',
-        hint: 'папката на пространството',
+        hint: desktop.activeWorkspace().cwd,
         keywords: ['файлове', 'files', 'папка', 'explorer', 'директория'],
         run: () => desktop.openFiles()
       },
@@ -122,7 +149,7 @@ export function createCommandBar({ root, desktop, programs, canvas, toast, minim
       },
       {
         id: 'sys:folder',
-        label: 'Смени папката на пространството',
+        label: 'Смени папката на станцията',
         hint: desktop.activeWorkspace().cwd,
         keywords: ['папка', 'folder', 'cwd', 'проект', 'project'],
         run: async () => {
@@ -154,7 +181,7 @@ export function createCommandBar({ root, desktop, programs, canvas, toast, minim
         keywords: ['побери', 'всичко', 'fit', 'обхват', 'отдалечи', 'покажи', 'всички'],
         run: () => {
           const fit = desktop.fitAll()
-          if (!fit) flash('Пространството е празно')
+          if (!fit) flash('Станцията е празна')
           else if (!fit.fits) flash('По-широко е от най-далечния мащаб — виж картата (Ctrl+M)')
         }
       },
@@ -179,7 +206,7 @@ export function createCommandBar({ root, desktop, programs, canvas, toast, minim
         keywords: ['подреди', 'нареди', 'мрежа', 'tidy', 'разчисти', 'прозорците', 'подреждане'],
         run: () => {
           const count = desktop.tidy()
-          flash(count ? `Подредени ${count} прозореца` : 'Пространството е празно')
+          flash(count ? `Подредени ${count} прозореца` : 'Станцията е празна')
         }
       },
       {
@@ -193,52 +220,52 @@ export function createCommandBar({ root, desktop, programs, canvas, toast, minim
       },
       {
         id: 'station:new',
-        label: 'Нова станция',
-        hint: 'отделен прозорец — Ctrl+Alt+N',
-        keywords: ['станция', 'station', 'прозорец', 'window', 'нова'],
+        label: 'Нов прозорец на Windows',
+        hint: 'със свои станции — Ctrl+Alt+N',
+        keywords: ['прозорец', 'window', 'нов', 'windows'],
         run: async () => {
           const opened = await window.w20.station.open()
-          flash(`Станция ${opened.id} е отворена`)
+          flash(`Прозорец ${opened.id} е отворен`)
         }
       },
       {
         id: 'station:next',
-        label: 'Следваща станция',
+        label: 'Следващ прозорец на Windows',
         hint: 'Ctrl+` — обръща прозореца',
-        keywords: ['следваща', 'станция', 'station', 'next', 'обърни', 'превърти'],
+        keywords: ['следващ', 'прозорец', 'next', 'обърни', 'превърти'],
         run: async () => {
           const to = await window.w20.station.cycle(1)
-          if (!to) flash('Има само една станция — Ctrl+Alt+N отваря втора')
+          if (!to) flash('Има само един прозорец — Ctrl+Alt+N отваря втори')
         }
       },
       {
         id: 'station:tile',
-        label: 'Подреди станциите една до друга',
+        label: 'Подреди прозорците на Windows един до друг',
         hint: 'по целия екран',
-        keywords: ['подреди', 'една до друга', 'tile', 'станции', 'нареди'],
+        keywords: ['подреди', 'един до друг', 'tile', 'прозорци', 'нареди'],
         run: async () => {
           const result = await window.w20.station.tile()
-          if (result) flash(`${result.count} станции са подредени`)
+          if (result) flash(`${result.count} прозореца са подредени`)
         }
       },
       {
         id: 'ws:new',
-        label: 'Ново пространство',
-        hint: 'Ctrl+Shift+N',
-        keywords: ['ново', 'пространство', 'workspace', 'new', 'десктоп'],
+        label: 'Нова станция',
+        hint: 'Ctrl+Shift+N — със своя картина',
+        keywords: ['нова', 'станция', 'пространство', 'workspace', 'new', 'десктоп'],
         run: () => desktop.addWorkspace()
       },
       {
         id: 'ws:close',
-        label: `Затвори пространство ${desktop.activeWorkspace().name}`,
-        hint: 'заедно с прозорците в него',
-        keywords: ['затвори', 'махни', 'close', 'пространство', 'workspace'],
+        label: `Затвори станция ${desktop.activeWorkspace().name}`,
+        hint: 'заедно с прозорците в нея',
+        keywords: ['затвори', 'махни', 'close', 'станция', 'пространство', 'workspace'],
         // Takes live terminals with it — the ИИ may offer it, never run it.
         confirm: true,
         run: () => {
           const name = desktop.activeWorkspace().name
-          if (desktop.closeWorkspace()) flash(`Пространство ${name} е затворено`)
-          else flash('Трябва да остане поне едно пространство')
+          if (desktop.closeWorkspace()) flash(`Станция ${name} е затворена`)
+          else flash('Трябва да остане поне една станция')
         }
       }
     ]
@@ -246,9 +273,9 @@ export function createCommandBar({ root, desktop, programs, canvas, toast, minim
     desktop.workspaces.forEach((ws, index) => {
       commands.push({
         id: `go:${index}`,
-        label: `Премини на пространство ${ws.name}`,
+        label: `Иди на станция ${ws.name}`,
         hint: `${ws.nodes.length} прозореца`,
-        keywords: [ws.name, `${index + 1}`, 'пространство', 'workspace'],
+        keywords: [ws.name, `${index + 1}`, 'станция', 'пространство', 'workspace'],
         run: () => desktop.switchTo(index)
       })
     })
@@ -261,11 +288,12 @@ export function createCommandBar({ root, desktop, programs, canvas, toast, minim
         if (index === desktop.activeIndex) return
         commands.push({
           id: `move:${index}`,
-          label: `Премести „${selected.title}“ в пространство ${ws.name}`,
+          label: `Премести „${selected.title}“ в станция ${ws.name}`,
           hint: selected.type === 'terminal' ? 'терминалът продължава да работи' : `${ws.nodes.length} прозореца`,
-          keywords: ['премести', 'move', 'прехвърли', 'пространство', ws.name, selected.title],
+          keywords: ['премести', 'move', 'прехвърли', 'станция', ws.name, selected.title],
           run: () => {
-            if (desktop.moveNodeTo(selected.id, index)) flash(`„${selected.title}“ е в пространство ${ws.name}`)
+            if (desktop.moveNodeTo(selected.id, index)) flash(`„${selected.title}“ е в станция ${ws.name}`)
+            else flash(`Станция ${ws.name} е пълна`)
           }
         })
       })
@@ -273,21 +301,21 @@ export function createCommandBar({ root, desktop, programs, canvas, toast, minim
 
     commands.push({
       id: 'paper:random',
-      label: 'Фон: на случаен принцип',
-      hint: 'Ctrl+Shift+B',
-      keywords: ['случаен', 'random', 'фон', 'тапет', 'цвят', 'тема', 'изненадай'],
+      label: 'Картина: на случаен принцип',
+      hint: 'Ctrl+Shift+B — нарисувана в 4K',
+      keywords: ['случаен', 'random', 'фон', 'картина', 'тапет', 'цвят', 'тема', 'изненадай'],
       run: () => {
         const paper = desktop.randomWallpaper()
-        flash(`Фон: ${paper.label}`)
+        flash(`Картина: ${paper.label}`)
       }
     })
 
     for (const paper of desktop.WALLPAPERS) {
       commands.push({
         id: `paper:${paper.id}`,
-        label: `Фон: ${paper.label}`,
-        hint: 'цветовете на станцията',
-        keywords: ['тапет', 'wallpaper', 'фон', 'цвят', 'тема', 'theme', paper.id, paper.label],
+        label: `Картина: ${paper.label}`,
+        hint: 'нова всеки път, в 4K',
+        keywords: ['картина', 'тапет', 'wallpaper', 'фон', 'цвят', 'тема', 'theme', paper.id, paper.label],
         run: () => desktop.setWallpaper(paper.id)
       })
     }
@@ -379,7 +407,7 @@ export function createCommandBar({ root, desktop, programs, canvas, toast, minim
       ? desktop.findNodes(query).slice(0, 4).map((hit) => ({
           id: `node:${hit.node.id}`,
           label: `Иди на „${hit.node.title}“`,
-          hint: `пространство ${hit.workspaceName}`,
+          hint: `станция ${hit.workspaceName}`,
           run: () => desktop.revealNode(hit.node.id, hit.workspaceIndex)
         }))
       : []
@@ -497,7 +525,7 @@ export function createCommandBar({ root, desktop, programs, canvas, toast, minim
     for (const hit of desktop.findNodes('')) {
       commands.push({
         id: `node:${hit.node.id}`,
-        label: `Иди на прозореца „${hit.node.title}“ (пространство ${hit.workspaceName})`,
+        label: `Иди на прозореца „${hit.node.title}“ (станция ${hit.workspaceName})`,
         run: () => desktop.revealNode(hit.node.id, hit.workspaceIndex)
       })
     }
@@ -515,7 +543,7 @@ export function createCommandBar({ root, desktop, programs, canvas, toast, minim
     const selected = desktop.focusedNode()
     const titles = ws.nodes.slice(0, 20).map((n) => n.title).join(', ')
     return (
-      `пространство ${ws.name}, ${ws.nodes.length} прозореца` +
+      `станция ${ws.name}, ${ws.nodes.length} прозореца` +
       (titles ? ` (${titles})` : '') +
       (selected ? `; избран е „${selected.title}“` : '')
     )
@@ -584,7 +612,8 @@ export function createCommandBar({ root, desktop, programs, canvas, toast, minim
     }
 
     if (reply) {
-      toast(reply, { timeout: Math.min(15000, 4000 + reply.length * 60) })
+      const via = result.fellBack ? ` (отговори ${result.provider} — първият избор беше зает)` : ''
+      toast(reply + via, { timeout: Math.min(15000, 4000 + reply.length * 60) })
       if (spoken && speaker) speaker.say(reply)
     }
   }
@@ -640,6 +669,9 @@ export function createCommandBar({ root, desktop, programs, canvas, toast, minim
       refresh()
     },
     toggleVoice: () => voice.toggle(),
+    onOverview: (fn) => {
+      overviewHandler = fn
+    },
     askAI,
     flash
   }

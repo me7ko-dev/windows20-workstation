@@ -3,7 +3,7 @@
 const path = require('path')
 const os = require('os')
 const fsp = require('fs/promises')
-const { app, BrowserWindow, ipcMain, shell, dialog, screen } = require('electron')
+const { app, BrowserWindow, ipcMain, shell, dialog, screen, Menu } = require('electron')
 
 const term = require('./pty')
 const { detect } = require('./programs')
@@ -129,6 +129,10 @@ function createWindow(stationId) {
 }
 
 app.whenReady().then(() => {
+  // No application menu. Its accelerators — Ctrl+W closing the whole window,
+  // Ctrl+R reloading it, Ctrl+0/+/- zooming the page — would fire over the
+  // station's own keys. Text fields still copy and paste on their own.
+  Menu.setApplicationMenu(null)
   store = createStore(app.getPath('userData'))
   settings = createSettings(app.getPath('userData'))
 
@@ -387,6 +391,21 @@ ipcMain.handle('program:launch', async (_e, { id, args }) => {
 
 /* ------------------------------------------------------------- terminals */
 
+/** The environment variables each agent CLI reads its key from. */
+function agentEnv(store) {
+  const state = store.read()
+  const env = {}
+  const put = (provider, ...names) => {
+    const key = store.keyFor(provider, state)
+    if (key) for (const name of names) env[name] = key
+  }
+  put('groq', 'GROQ_API_KEY')
+  put('gemini', 'GEMINI_API_KEY', 'GOOGLE_API_KEY')
+  put('openrouter', 'OPENROUTER_API_KEY')
+  put('xai', 'XAI_API_KEY')
+  return env
+}
+
 ipcMain.handle('term:create', (e, opts) => {
   const station = stationOf(e)
   if (!station) return { ok: false, error: 'няма такава станция' }
@@ -397,9 +416,16 @@ ipcMain.handle('term:create', (e, opts) => {
     if (!station.win.isDestroyed()) station.win.webContents.send(channel, { id, ...payload })
   }
 
+  // An agent gets the free keys from Settings in its environment, so Gemini
+  // CLI, Aider or OpenCode start on the same free service the voice uses. The
+  // renderer only names the program; the keys never pass through it.
+  const program = opts && opts.programId ? programs().find((p) => p.id === opts.programId) : null
+  const env = program && program.kind === 'agent' && settings ? agentEnv(settings) : {}
+  const { programId, env: _ignored, ...rest } = opts || {}
+
   try {
     term.create(
-      { ...opts, owner: station.id },
+      { ...rest, env, owner: station.id },
       (id, data) => send('term:data')(id, { data }),
       (id, exitCode) => send('term:exit')(id, { exitCode })
     )

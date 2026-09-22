@@ -1,6 +1,6 @@
 'use strict'
 
-const { contextBridge, ipcRenderer } = require('electron')
+const { contextBridge, ipcRenderer, clipboard } = require('electron')
 
 /**
  * The only bridge between the canvas and the machine. Everything the renderer
@@ -9,6 +9,11 @@ const { contextBridge, ipcRenderer } = require('electron')
  */
 contextBridge.exposeInMainWorld('w20', {
   programs: () => ipcRenderer.invoke('programs:list'),
+  // Text only, for the terminal's copy and paste.
+  clipboard: {
+    read: () => clipboard.readText(),
+    write: (text) => clipboard.writeText(String(text))
+  },
   home: () => ipcRenderer.invoke('sys:home'),
   pickFolder: () => ipcRenderer.invoke('sys:pick-folder'),
 
