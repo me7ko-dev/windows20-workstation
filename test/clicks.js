@@ -35,6 +35,38 @@ const pageServer = http.createServer((_req, res) => {
   )
 })
 
+/* ------------------------------------------------ a stand-in for the ИИ */
+
+// An OpenAI-compatible service on localhost, so the ИИ path and the speech
+// path are checked end to end without a key or the internet. It answers the
+// way a model would — with an id from the list, or one it made up.
+const AI_PORT = 8139
+const aiRequests = []
+const aiServer = http.createServer((req, res) => {
+  const chunks = []
+  req.on('data', (c) => chunks.push(c))
+  req.on('end', () => {
+    const body = Buffer.concat(chunks)
+    aiRequests.push({ url: req.url, auth: req.headers.authorization || '', body: body.toString('utf8') })
+    res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' })
+    if (req.url.endsWith('/audio/transcriptions')) {
+      res.end(JSON.stringify({ text: 'нова бележка' }))
+      return
+    }
+    const said = (/Потребителят каза: „([^“]*)“/.exec(JSON.parse(body.toString('utf8')).messages[1].content) || [])[1] || ''
+    let reply = { command: null, say: 'Не разбрах.' }
+    if (said.includes('бележка')) reply = { command: 'new:note', say: 'Отварям нова бележка.' }
+    else if (said.includes('измислена')) reply = { command: 'rm:everything', say: '' }
+    else if (said.includes('затвори пространството')) {
+      const id = (/(ws:close) —/.exec(body.toString('utf8')) || [])[1]
+      reply = { command: id || null, say: '' }
+    }
+    // Wrapped in prose and a fence, the way models often do.
+    const content = 'Ето:\n```json\n' + JSON.stringify(reply) + '\n```'
+    res.end(JSON.stringify({ choices: [{ message: { role: 'assistant', content } }] }))
+  })
+})
+
 /* -------------------------------------------------- the machine's edges */
 
 const spawned = []
@@ -111,6 +143,8 @@ electron.shell.openPath = async (target) => {
 }
 
 app.setPath('userData', '/tmp/w20-click-data')
+// Settings from an earlier run would change what the bar and the ИИ do.
+require('fs').rmSync('/tmp/w20-click-data/settings.json', { force: true })
 require('../src/main/main.js')
 
 /* ---------------------------------------------------------------- report */
@@ -142,7 +176,11 @@ const WATCH = `
   window.__t = {
     key(k, o = {}) {
       window.dispatchEvent(new KeyboardEvent('keydown', {
-        key: k, code: o.code || '', ctrlKey: o.ctrl !== false, shiftKey: !!o.shift, altKey: !!o.alt,
+        // The code is the physical key, which is what the shortcuts read — so
+        // they work the same on a Bulgarian layout.
+        key: k,
+        code: o.code || (/^[a-z]$/i.test(k) ? 'Key' + k.toUpperCase() : /^[0-9]$/.test(k) ? 'Digit' + k : ''),
+        ctrlKey: o.ctrl !== false, shiftKey: !!o.shift, altKey: !!o.alt,
         bubbles: true, cancelable: true
       }))
     },
@@ -191,6 +229,7 @@ async function drain(label) {
 
 async function main() {
   await new Promise((r) => pageServer.listen(PAGE_PORT, '127.0.0.1', r))
+  await new Promise((r) => aiServer.listen(AI_PORT, '127.0.0.1', r))
   await app.whenReady()
   await sleep(2600)
 
@@ -485,12 +524,37 @@ async function main() {
       await window.__t.type('настройки')
       await window.__t.runLabel('Настройки')
       await new Promise((r) => setTimeout(r, 700))`],
-    ['запазване без ключ', `document.querySelector('.w20-settings-save').click()`],
+    ['запазване без ключ', `document.querySelector('[data-role="save"]').click()`],
     ['запазване с ключ', `
-      document.querySelector('[data-role="key"]').value = 'sk-проба'
-      document.querySelector('[data-role="model"]').value = 'whisper-1'
-      document.querySelector('.w20-settings-save').click()
+      document.querySelector('[data-role="stt-key"]').value = 'gsk-проба'
+      document.querySelector('[data-role="stt-model"]').value = 'whisper-large-v3'
+      document.querySelector('[data-role="save"]').click()
       await new Promise((r) => setTimeout(r, 500))`],
+    ['всяка услуга в списъците', `
+      for (const role of ['stt-provider', 'ai-provider', 'speech-engine']) {
+        const select = document.querySelector('[data-role="' + role + '"]')
+        for (const option of [...select.options]) {
+          select.value = option.value
+          select.dispatchEvent(new Event('change', { bubbles: true }))
+        }
+      }`],
+    ['скорост на гласа', `
+      const r = document.querySelector('[data-role="speech-rate"]')
+      r.value = '1.3'
+      r.dispatchEvent(new Event('input', { bubbles: true }))`],
+    ['линк за ключ', `
+      document.querySelector('[data-role="ai-provider"]').value = 'groq'
+      document.querySelector('[data-role="ai-provider"]').dispatchEvent(new Event('change', { bubbles: true }))
+      // The real address is out on the internet; the check stays on this machine.
+      const link = document.querySelector('[data-role="ai-key-link"]')
+      link.dataset.url = 'http://127.0.0.1:${PAGE_PORT}/'
+      link.click()
+      await new Promise((r) => setTimeout(r, 300))
+      document.querySelector('.w20-window--web .w20-window-close')?.click()`],
+    ['пробвай гласа', `
+      document.querySelector('[data-role="speech-engine"]').value = 'off'
+      document.querySelector('[data-role="try"]').click()
+      await new Promise((r) => setTimeout(r, 1500))`],
     ['затваряне', `document.querySelector('.w20-window--settings .w20-window-close').click()`]
   ])
 
@@ -588,6 +652,49 @@ async function main() {
     console.log(`  ${errs.length ? 'ГРЕШКА' : 'ok'}  ${what}${errs.length ? ' — ' + errs[0] : ''}`)
   }
 
+  /* ============================================================ the ИИ */
+
+  console.log('\n— ИИ навигацията —')
+  const secret = 'gsk-тайна-проба'
+  const safe = await run(`
+    return JSON.stringify(await window.w20.settings.set({
+      stt: { provider: 'custom', endpoint: 'http://127.0.0.1:${AI_PORT}/v1', model: '' },
+      ai: { provider: 'custom', endpoint: 'http://127.0.0.1:${AI_PORT}/v1', model: 'проба' },
+      speech: { engine: 'off' },
+      keys: { groq: '${secret}' }
+    }))`)
+  expect('ключът не стига до платното', !safe.includes(secret))
+  expect('ИИ е готов със свой адрес', JSON.parse(safe).ai.ready === true)
+
+  const heard = await run(`return await window.w20.voice.transcribe(new Uint8Array(4000).buffer, 'audio/webm')`)
+  expect('гласът минава през своя адрес', heard.ok && heard.text === 'нова бележка', JSON.stringify(heard))
+
+  async function ask(text) {
+    await run(`window.__t.clear(); return true`)
+    await sleep(300)
+    await run(`return await window.__t.type(${JSON.stringify(text)})`)
+    const clicked = await run(`return await window.__t.runLabel('Попитай ИИ')`)
+    await sleep(700)
+    return clicked
+  }
+
+  expect('лентата предлага „Попитай ИИ“', await ask('направи ми бележка за утре'))
+  expect('ИИ отваря бележка', (await run('return window.__t.kinds()')).includes('note'))
+  const asked = aiRequests.filter((r) => r.url.endsWith('/chat/completions')).pop()
+  expect('ИИ вижда командите', !!asked && asked.body.includes('new:note —'))
+
+  await ask('измислена команда')
+  expect('измислена команда не прави нищо', (await run('return window.__t.nodes().length')) === 0)
+
+  const tabsBefore = await run(`return document.querySelectorAll('.w20-tab').length`)
+  await ask('затвори пространството')
+  const tabsAfter = await run(`return document.querySelectorAll('.w20-tab').length`)
+  const waiting = await run(`return document.querySelector('.w20-bar-input').value`)
+  expect('необратимото чака Enter', tabsAfter === tabsBefore && waiting.startsWith('Затвори пространство'), waiting)
+  await run(`document.querySelector('.w20-bar-input').value = ''; document.querySelector('.w20-bar-input').blur(); return true`)
+
+  did('ИИ: бележка, измислена команда, необратима команда')
+
   await sleep(600)
   await drain('накрая')
 
@@ -606,6 +713,7 @@ async function main() {
     for (const f of failures) console.log(`  ${f.name} — ${f.detail}`)
   }
   pageServer.close()
+  aiServer.close()
   app.exit(seen.length + failures.length ? 1 : 0)
 }
 

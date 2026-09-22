@@ -46,6 +46,18 @@ contextBridge.exposeInMainWorld('w20', {
     transcribe: (buffer, mimeType) => ipcRenderer.invoke('voice:transcribe', { buffer, mimeType })
   },
 
+  ai: {
+    // The commands go out as ids and labels; only an id comes back, and the
+    // renderer checks it against its own list before running anything.
+    navigate: (request) => ipcRenderer.invoke('ai:navigate', request)
+  },
+
+  speech: {
+    say: (text) => ipcRenderer.invoke('speech:say', text)
+  },
+
+  providers: () => ipcRenderer.invoke('providers:list'),
+
   settings: {
     get: () => ipcRenderer.invoke('settings:get'),
     set: (patch) => ipcRenderer.invoke('settings:set', patch)

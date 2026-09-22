@@ -9,13 +9,13 @@
 
 import { createVoice } from './voice.js'
 
-export function createCommandBar({ root, desktop, programs, canvas, toast, minimap }) {
+export function createCommandBar({ root, desktop, programs, canvas, toast, minimap, speaker }) {
   const el = document.createElement('div')
   el.className = 'w20-bar'
   el.innerHTML = `
     <div class="w20-bar-results" data-role="results" hidden></div>
     <div class="w20-bar-main">
-      <button class="w20-bar-mic" data-role="mic" title="Гласът идва по-късно">◉</button>
+      <button class="w20-bar-mic" data-role="mic" title="Говори (Ctrl+Shift+Space)">◉</button>
       <input class="w20-bar-input" data-role="input" placeholder="Напиши команда…" spellcheck="false" />
       <span class="w20-bar-hint">Ctrl+K</span>
       <span class="w20-bar-load" data-role="load"></span>
@@ -136,8 +136,8 @@ export function createCommandBar({ root, desktop, programs, canvas, toast, minim
       {
         id: 'sys:settings',
         label: 'Настройки',
-        hint: 'ключ за гласа, език',
-        keywords: ['настройки', 'settings', 'ключ', 'key', 'глас', 'voice'],
+        hint: 'глас, ИИ, безплатни ключове',
+        keywords: ['настройки', 'settings', 'ключ', 'key', 'глас', 'voice', 'ии', 'ai'],
         run: () => desktop.openSettings()
       },
       {
@@ -233,6 +233,8 @@ export function createCommandBar({ root, desktop, programs, canvas, toast, minim
         label: `Затвори пространство ${desktop.activeWorkspace().name}`,
         hint: 'заедно с прозорците в него',
         keywords: ['затвори', 'махни', 'close', 'пространство', 'workspace'],
+        // Takes live terminals with it — the ИИ may offer it, never run it.
+        confirm: true,
         run: () => {
           const name = desktop.activeWorkspace().name
           if (desktop.closeWorkspace()) flash(`Пространство ${name} е затворено`)
@@ -382,7 +384,14 @@ export function createCommandBar({ root, desktop, programs, canvas, toast, minim
         }))
       : []
 
-    matches = [...direct, ...nodeHits, ...found]
+    // The last row always hands the words to the ИИ: what the table does not
+    // know may still be something the station can do.
+    const ask =
+      query.length >= 2
+        ? [{ id: 'ai:ask', label: 'Попитай ИИ', hint: `„${query}“`, run: () => askAI(query, { spoken: false }) }]
+        : []
+
+    matches = [...direct, ...nodeHits, ...found, ...ask]
     cursor = 0
     draw()
   }
@@ -463,22 +472,121 @@ export function createCommandBar({ root, desktop, programs, canvas, toast, minim
       return
     }
 
+    // The table first: it is instant, free and works without internet.
     const best = allCommands()
       .map((command) => ({ command, rank: score(command, text) }))
-      .filter((entry) => entry.rank >= 2)
+      .filter((entry) => entry.rank >= 2 && !entry.command.confirm)
       .sort((a, b) => b.rank - a.rank)[0]
 
     if (best) {
       toast(`${best.command.label}`, { timeout: 4000 })
       best.command.run()
+      if (speaker) speaker.say(best.command.label)
       return
     }
 
-    // Nothing matched confidently — show the words rather than act on a guess.
-    input.value = text
-    input.focus()
-    refresh()
-    toast(`Не разпознах команда в „${text}“ — оставих я в лентата.`, { tone: 'warn' })
+    askAI(text, { spoken: true })
+  }
+
+  /**
+   * Everything the ИИ may choose from right now: the bar's own commands, every
+   * window by name, and a web search — the one entry that takes words.
+   */
+  function aiCommands() {
+    const commands = allCommands()
+    for (const hit of desktop.findNodes('')) {
+      commands.push({
+        id: `node:${hit.node.id}`,
+        label: `Иди на прозореца „${hit.node.title}“ (пространство ${hit.workspaceName})`,
+        run: () => desktop.revealNode(hit.node.id, hit.workspaceIndex)
+      })
+    }
+    commands.push({
+      id: 'web:search',
+      label: 'Търси в интернет',
+      takesArg: true,
+      run: (arg) => desktop.openWeb(`https://duckduckgo.com/?q=${encodeURIComponent(arg || '')}`)
+    })
+    return commands
+  }
+
+  function describeScreen() {
+    const ws = desktop.activeWorkspace()
+    const selected = desktop.focusedNode()
+    const titles = ws.nodes.slice(0, 20).map((n) => n.title).join(', ')
+    return (
+      `пространство ${ws.name}, ${ws.nodes.length} прозореца` +
+      (titles ? ` (${titles})` : '') +
+      (selected ? `; избран е „${selected.title}“` : '')
+    )
+  }
+
+  let asking = false
+
+  /**
+   * A sentence the table did not know goes to the ИИ, which may only answer
+   * with one of the ids it was given — checked again here before anything
+   * runs. Heard sentences get their reply read aloud.
+   */
+  async function askAI(text, { spoken }) {
+    if (asking) return
+    const state = await window.w20.settings.get()
+    if (!state || !state.ai.ready) {
+      input.value = text
+      toast('ИИ не е настроен. В Настройки въведи безплатен ключ (Groq или Gemini) или избери Ollama.', {
+        tone: 'warn'
+      })
+      if (spoken && speaker) speaker.say('Не разбрах командата, а ИИ още не е настроен.')
+      desktop.openSettings()
+      return
+    }
+
+    const commands = aiCommands()
+    const byId = new Map(commands.map((c) => [c.id, c]))
+
+    asking = true
+    el.dataset.voice = 'thinking'
+    flash('Мисля…')
+    let result
+    try {
+      result = await window.w20.ai.navigate({
+        text,
+        commands: commands.map(({ id, label, takesArg }) => ({ id, label, takesArg: Boolean(takesArg) })),
+        context: describeScreen()
+      })
+    } finally {
+      asking = false
+      el.dataset.voice = voice.state
+    }
+
+    if (!result || !result.ok) {
+      input.value = text
+      toast((result && result.error) || 'ИИ не отговори.', { tone: 'error' })
+      if (spoken && speaker) speaker.say('ИИ не отговори.')
+      return
+    }
+
+    const command = result.command ? byId.get(result.command) : null
+    let reply = result.say
+
+    if (command && command.confirm) {
+      // Something that cannot be undone waits for the user's own Enter.
+      input.value = command.label
+      input.focus()
+      refresh()
+      reply = reply || `${command.label}? Потвърди с Enter.`
+    } else if (command) {
+      command.run(result.arg)
+      reply = reply || command.label
+    } else if (result.command) {
+      // An id that is not on the list — say so rather than guess at one.
+      reply = reply || 'Не мога да направя това.'
+    }
+
+    if (reply) {
+      toast(reply, { timeout: Math.min(15000, 4000 + reply.length * 60) })
+      if (spoken && speaker) speaker.say(reply)
+    }
   }
 
   /* --------------------------------------------------------------- tabs */
@@ -532,6 +640,7 @@ export function createCommandBar({ root, desktop, programs, canvas, toast, minim
       refresh()
     },
     toggleVoice: () => voice.toggle(),
+    askAI,
     flash
   }
 }

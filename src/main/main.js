@@ -10,6 +10,9 @@ const { detect } = require('./programs')
 const { createStore } = require('./store')
 const { createSettings } = require('./settings')
 const { transcribe } = require('./stt')
+const ai = require('./ai')
+const speech = require('./speech')
+const { catalog: providerCatalog } = require('./providers')
 
 let store = null
 let settings = null
@@ -427,6 +430,18 @@ ipcMain.handle('voice:transcribe', async (_e, { buffer, mimeType }) => {
   if (!settings) return { ok: false, error: 'Настройките още не са заредени.' }
   return transcribe({ audio: Buffer.from(buffer), mimeType }, settings)
 })
+
+ipcMain.handle('ai:navigate', async (_e, request) => {
+  if (!settings) return { ok: false, error: 'Настройките още не са заредени.' }
+  return ai.navigate(request || {}, settings)
+})
+
+ipcMain.handle('speech:say', async (_e, text) => {
+  if (!settings) return { ok: false, error: 'Настройките още не са заредени.' }
+  return speech.say(text, settings)
+})
+
+ipcMain.handle('providers:list', () => providerCatalog())
 
 ipcMain.handle('settings:get', () => (settings ? settings.safe() : null))
 

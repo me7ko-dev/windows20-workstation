@@ -133,7 +133,7 @@ function nextId(type) {
   return `${type}-${Date.now().toString(36)}-${seq}`
 }
 
-export function createDesktop({ plane, canvas, programs, home }) {
+export function createDesktop({ plane, canvas, programs, home, speaker }) {
   const workspaces = []
   let activeIndex = 0
   const live = new Map() // nodeId -> { win, content }
@@ -241,7 +241,7 @@ export function createDesktop({ plane, canvas, programs, home }) {
         }
       })
     } else if (node.type === 'settings') {
-      content = mountSettings(win, {})
+      content = mountSettings(win, { speaker, openWeb: (url) => openWeb(url) })
     } else if (node.type === 'web') {
       content = mountWeb(win, {
         // An editor window has no address bar: its address is the server's,
@@ -704,7 +704,7 @@ export function createDesktop({ plane, canvas, programs, home }) {
       existing.win.focusInView()
       return existing
     }
-    return addNode({ type: 'settings', title: 'Настройки', accent: '#9aa2b1', width: 380, height: 420 })
+    return addNode({ type: 'settings', title: 'Настройки', accent: '#9aa2b1', width: 460, height: 640 })
   }
 
   function openNote(text = '', size = {}) {

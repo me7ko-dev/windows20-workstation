@@ -3,6 +3,7 @@ import { createDesktop } from './workspaces.js'
 import { createCommandBar } from './command-bar.js'
 import { createToasts } from './toast.js'
 import { createMinimap } from './minimap.js'
+import { createSpeaker } from './speaker.js'
 
 const WELCOME = `Добре дошъл в работната станция.
 
@@ -31,9 +32,11 @@ const WELCOME = `Добре дошъл в работната станция.
 редакторът през своя serve-web, браузърът и файловете като
 прозорци на платното.
 
-За гласа: отвори Настройки (Ctrl+K → „настройки“) и
-въведи ключ за транскрипция. Ако е фокусиран терминал,
-казаното отива в него; иначе става команда.`
+Глас и ИИ, безплатно: отвори Настройки (Ctrl+K → „настройки“)
+и въведи безплатен ключ от Groq — той и чува, и мисли.
+Ако е фокусиран терминал, казаното отива в него; иначе
+става команда, а каквото лентата не знае, ИИ го разбира
+и ти отговаря на глас, на български.`
 
 async function boot() {
   const viewport = document.getElementById('viewport')
@@ -48,15 +51,16 @@ async function boot() {
   mountFlip()
 
   const toast = createToasts(root)
+  const speaker = createSpeaker({ toast })
   const canvas = createCanvas(viewport, plane)
-  const desktop = createDesktop({ plane, canvas, programs: info.programs, home })
+  const desktop = createDesktop({ plane, canvas, programs: info.programs, home, speaker })
 
   const saved = await window.w20.state.load()
   desktop.load(saved)
   const firstRun = !saved
 
   const minimap = createMinimap({ root, desktop, canvas, viewport })
-  const bar = createCommandBar({ root, desktop, programs: info.programs, canvas, toast, minimap })
+  const bar = createCommandBar({ root, desktop, programs: info.programs, canvas, toast, minimap, speaker })
   buildDock(root, info.programs, desktop)
 
   if (!info.ptyAvailable) {
@@ -76,26 +80,26 @@ async function boot() {
 
   window.addEventListener('keydown', (e) => {
     const ctrl = e.ctrlKey || e.metaKey
-    if (ctrl && e.key.toLowerCase() === 'k') {
+    if (ctrl && e.code === 'KeyK') {
       e.preventDefault()
       bar.focus()
       return
     }
-    if (ctrl && e.key.toLowerCase() === 't') {
+    if (ctrl && e.code === 'KeyT') {
       e.preventDefault()
       desktop.openTerminal()
       return
     }
     // Closes the window the user last touched — the same Ctrl+W the titlebar
     // has always promised.
-    if (ctrl && !e.shiftKey && e.key.toLowerCase() === 'w') {
+    if (ctrl && !e.shiftKey && e.code === 'KeyW') {
       e.preventDefault()
       const closed = desktop.closeFocused()
       if (!closed) toast('Нищо не е избрано — щракни върху прозорец', { timeout: 2200 })
       return
     }
     // Grow the selected window over the small ones beside it, and back.
-    if (ctrl && e.shiftKey && e.key.toLowerCase() === 'e') {
+    if (ctrl && e.shiftKey && e.code === 'KeyE') {
       e.preventDefault()
       const grown = desktop.expand()
       if (!grown) toast('Нищо не е избрано — щракни върху прозорец', { timeout: 2200 })
@@ -109,14 +113,14 @@ async function boot() {
         )
       return
     }
-    if (ctrl && e.key.toLowerCase() === 'm') {
+    if (ctrl && e.code === 'KeyM') {
       e.preventDefault()
       toast(minimap.toggle() ? 'Картата е включена' : 'Картата е скрита', { timeout: 1600 })
       return
     }
     // Tidy the workspace into a grid. Shift, so a stray Ctrl+G never moves
     // three hundred windows by accident.
-    if (ctrl && e.shiftKey && e.key.toLowerCase() === 'g') {
+    if (ctrl && e.shiftKey && e.code === 'KeyG') {
       e.preventDefault()
       const count = desktop.tidy()
       toast(count ? `Подредени ${count} прозореца` : 'Пространството е празно', { timeout: 2200 })
@@ -148,22 +152,22 @@ async function boot() {
       return
     }
     // A whole second workstation, not another workspace inside this one.
-    if (ctrl && e.altKey && e.key.toLowerCase() === 'n') {
+    if (ctrl && e.altKey && e.code === 'KeyN') {
       e.preventDefault()
       window.w20.station.open()
       return
     }
-    if (ctrl && e.shiftKey && e.key.toLowerCase() === 'n') {
+    if (ctrl && e.shiftKey && e.code === 'KeyN') {
       e.preventDefault()
       desktop.addWorkspace()
       return
     }
-    if (ctrl && e.key.toLowerCase() === 'n') {
+    if (ctrl && e.code === 'KeyN') {
       e.preventDefault()
       desktop.openNote()
       return
     }
-    if (ctrl && e.shiftKey && e.key.toLowerCase() === 'b') {
+    if (ctrl && e.shiftKey && e.code === 'KeyB') {
       e.preventDefault()
       const paper = desktop.randomWallpaper()
       toast(`Фон: ${paper.label}`, { timeout: 2200 })
