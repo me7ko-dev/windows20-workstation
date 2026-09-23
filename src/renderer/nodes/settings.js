@@ -6,6 +6,8 @@
  * canvas cannot leak it. One key per service: a free Groq key typed once both
  * hears and thinks.
  */
+import { setTheme, chosen } from '../theme.js'
+
 export function mountSettings(win, { speaker, onSaved, openWeb } = {}) {
   const wrap = document.createElement('div')
   wrap.className = 'w20-settings'
@@ -97,6 +99,20 @@ export function mountSettings(win, { speaker, onSaved, openWeb } = {}) {
       <span>Скорост: <b data-role="rate-value">1.0</b></span>
       <input type="range" min="0.6" max="1.6" step="0.1" data-role="speech-rate" />
     </label>
+
+    <h3 class="w20-settings-section">Изглед и клавиши</h3>
+    <label class="w20-field">
+      <span>Тема</span>
+      <select data-role="theme">
+        <option value="dark">Тъмна</option>
+        <option value="light">Светла</option>
+        <option value="system">Като Windows</option>
+      </select>
+    </label>
+    <div class="w20-settings-row">
+      <button class="w20-settings-save is-quiet" data-role="edit-keys">Промени клавишите…</button>
+    </div>
+    <p class="w20-settings-hint">Отваря keybindings.json. Запазиш ли го, новите клавиши важат веднага. Там са и двата глобални: Ctrl+Alt+W показва станцията отвсякъде, Ctrl+Alt+Space я показва и слуша.</p>
 
     <div class="w20-settings-row">
       <button class="w20-settings-save" data-role="save">Запази</button>
@@ -196,6 +212,11 @@ export function mountSettings(win, { speaker, onSaved, openWeb } = {}) {
     syncSpeech()
     status.textContent = describe(state)
   }
+
+  $('theme').value = chosen()
+  // A theme is seen at once — no Save needed to try it.
+  $('theme').addEventListener('change', () => setTheme($('theme').value))
+  $('edit-keys').addEventListener('click', () => document.dispatchEvent(new CustomEvent('w20:edit-keys')))
 
   $('stt-provider').addEventListener('change', () => syncSection('stt', catalog.stt))
   $('ai-provider').addEventListener('change', () => syncSection('ai', catalog.chat))

@@ -44,10 +44,14 @@ function createSettings(userDataDir) {
       azureRegion: 'westeurope',
       azureVoice: 'bg-BG-KalinaNeural'
     },
+    // How the station looks.
+    look: {
+      theme: 'dark' // dark | light | system
+    },
     keys: {}
   }
 
-  const SECTIONS = ['stt', 'ai', 'speech', 'keys']
+  const SECTIONS = ['stt', 'ai', 'speech', 'look', 'keys']
 
   function read() {
     let parsed = {}
@@ -116,6 +120,7 @@ function createSettings(userDataDir) {
         ready: ready(state.ai.provider, state) && (state.ai.provider !== 'custom' || Boolean(state.ai.endpoint))
       },
       speech: { ...state.speech },
+      look: { ...state.look },
       hasKey
     }
   }

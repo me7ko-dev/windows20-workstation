@@ -48,6 +48,25 @@ const aiServer = http.createServer((req, res) => {
   req.on('end', () => {
     const body = Buffer.concat(chunks)
     aiRequests.push({ url: req.url, auth: req.headers.authorization || '', body: body.toString('utf8') })
+    // The chat window streams, the way the real services do.
+    if (req.url.endsWith('/chat/completions')) {
+      const parsed = JSON.parse(body.toString('utf8'))
+      if (parsed.stream && !/Потребителят каза/.test(JSON.stringify(parsed.messages))) {
+        res.writeHead(200, { 'Content-Type': 'text/event-stream; charset=utf-8' })
+        const pieces = ['Пусни ', 'това:\n', '```powershell\n', 'Get-Process', ' | Select -First 3\n', '```\n', 'Готово.']
+        let i = 0
+        const tick = setInterval(() => {
+          if (i < pieces.length) {
+            res.write(`data: ${JSON.stringify({ choices: [{ delta: { content: pieces[i] } }] })}\n\n`)
+            i += 1
+            return
+          }
+          clearInterval(tick)
+          res.end('data: [DONE]\n\n')
+        }, 40)
+        return
+      }
+    }
     res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' })
     if (req.url.endsWith('/audio/transcriptions')) {
       res.end(JSON.stringify({ text: 'нова бележка' }))
@@ -86,7 +105,10 @@ const ptyStub = {
       onExit(fn) {
         this.handlers.exit.push(fn)
       },
-      write() {},
+      writes: [],
+      write(data) {
+        this.writes.push(data)
+      },
       resize() {},
       kill() {
         this.alive = false
@@ -145,6 +167,7 @@ electron.shell.openPath = async (target) => {
 app.setPath('userData', '/tmp/w20-click-data')
 // Settings from an earlier run would change what the bar and the ИИ do.
 require('fs').rmSync('/tmp/w20-click-data/settings.json', { force: true })
+require('fs').rmSync('/tmp/w20-click-data/keybindings.json', { force: true })
 require('../src/main/main.js')
 
 /* ---------------------------------------------------------------- report */
@@ -786,6 +809,104 @@ async function main() {
   await run(`document.querySelector('.w20-bar-input').value = ''; document.querySelector('.w20-bar-input').blur(); return true`)
 
   did('ИИ: бележка, измислена команда, необратима команда')
+
+  /* ========================================================== the chat */
+
+  console.log('\n— ИИ чат —')
+  await run(`window.__t.clear(); return true`)
+  await sleep(400)
+  await run(`window.__t.key('t'); return true`)
+  await sleep(500)
+  await run(`window.__t.key('i', { shift: true }); return true`)
+  await sleep(500)
+  expect('Ctrl+Shift+I отваря чата', (await run('return window.__t.kinds()')).includes('chat'))
+  await run(`window.__t.key('i', { shift: true }); return true`)
+  await sleep(300)
+  expect('вторият път връща същия чат', (await run('return window.__t.kinds().filter((k) => k === "chat").length')) === 1)
+  await run(`
+    const box = document.querySelector('.w20-chat textarea')
+    box.value = 'покажи ми процесите'
+    box.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }))
+    return true`)
+  await sleep(150)
+  const midway = await run(`return !!document.querySelector('.w20-chat-msg.is-streaming')`)
+  expect('отговорът тече, докато се пише', midway)
+  await sleep(900)
+  const chatText = await run(`return document.querySelector('.w20-chat-log').innerText`)
+  expect('целият отговор стигна', chatText.includes('Готово.') && chatText.includes('Get-Process'), chatText.slice(0, 200))
+  expect('кодът е в свой блок', await run(`return !!document.querySelector('.w20-chat-code pre')`))
+  expect('чатът стрийминг-ва', aiRequests.some((r) => r.url.endsWith('/chat/completions') && r.body.includes('"stream":true')))
+  const before = spawned[spawned.length - 1].writes.length
+  await run(`[...document.querySelectorAll('.w20-chat-code-bar button')].find((b) => b.textContent.includes('терминала')).click(); return true`)
+  await sleep(200)
+  const typed = spawned[spawned.length - 1].writes.slice(before).join('')
+  expect('„В терминала“ написва командата, без Enter', typed.includes('Get-Process') && !/[\r\n]$/.test(typed), JSON.stringify(typed))
+  expect('HTML в отговора остава текст', await run(`return !document.querySelector('.w20-chat-log script, .w20-chat-log img')`))
+  did('чат: отваряне, стрийминг, код към терминала')
+  await drain('чатът')
+
+  /* ========================================================= the theme */
+
+  console.log('\n— тема —')
+  const startTheme = await run(`return document.documentElement.dataset.theme`)
+  await run(`window.__t.key('l', { alt: true }); return true`)
+  await sleep(300)
+  const flipped = await run(`return document.documentElement.dataset.theme`)
+  expect('Ctrl+Alt+L сменя темата', flipped !== startTheme && ['light', 'dark'].includes(flipped), `${startTheme} → ${flipped}`)
+  const stored = await run(`return (await window.w20.settings.get()).look.theme`)
+  expect('темата се помни', stored === flipped, stored)
+  const bgFlipped = await run(`return getComputedStyle(document.body).backgroundColor`)
+  await run(`window.__t.key('l', { alt: true }); return true`)
+  await sleep(300)
+  expect('и обратно', (await run(`return document.documentElement.dataset.theme`)) === startTheme)
+  const bgStart = await run(`return getComputedStyle(document.body).backgroundColor`)
+  const lightBg = flipped === 'light' ? bgFlipped : bgStart
+  const darkBg = flipped === 'light' ? bgStart : bgFlipped
+  expect('светлата е светла, тъмната — тъмна', /rgb\(2[0-9]{2}/.test(lightBg) && /rgb\(\d{1,2},/.test(darkBg), `${lightBg} / ${darkBg}`)
+  did('тема: светла и обратно')
+  await drain('темата')
+
+  /* ====================================================== own keys file */
+
+  console.log('\n— свои клавиши —')
+  const fsx = require('fs')
+  expect('глобалният клавиш е регистриран', require('electron').globalShortcut.isRegistered('Ctrl+Alt+W') || process.env.CI_NO_GLOBAL === '1')
+  await run(`window.__t.clear(); return true`)
+  await sleep(300)
+  fsx.writeFileSync(
+    '/tmp/w20-click-data/keybindings.json',
+    '{\n  // бележка на друг клавиш\n  "keys": { "window.note": ["Ctrl+Shift+Y"], "window.tidy": ["Ctrl+Щ"], },\n}\n'
+  )
+  await sleep(900)
+  await run(`window.__t.key('y', { shift: true }); return true`)
+  await sleep(300)
+  expect('свой клавиш работи веднага', (await run('return window.__t.kinds()')).includes('note'))
+  await run(`window.__t.clear(); return true`)
+  await sleep(300)
+  await run(`window.__t.key('n'); return true`)
+  await sleep(300)
+  expect('старият клавиш вече е свободен', !(await run('return window.__t.kinds()')).includes('note'))
+  const warned = await run(`return [...document.querySelectorAll('.w20-toast')].some((t) => t.textContent.includes('Ctrl+Щ'))`)
+  expect('грешен клавиш се казва', warned)
+  fsx.rmSync('/tmp/w20-click-data/keybindings.json', { force: true })
+  await sleep(900)
+  await run(`window.__t.key('n'); return true`)
+  await sleep(300)
+  expect('без файла — пак по подразбиране', (await run('return window.__t.kinds()')).includes('note'))
+  const opened0 = opened.length
+  await run(`document.dispatchEvent(new CustomEvent('w20:edit-keys')); return true`)
+  await sleep(400)
+  const written = fsx.existsSync('/tmp/w20-click-data/keybindings.json') ? fsx.readFileSync('/tmp/w20-click-data/keybindings.json', 'utf8') : ''
+  expect('„Промени клавишите“ пише файла с всички', written.includes('"window.terminal": ["Ctrl+T", "Ctrl+Shift+T"]') && opened.length > opened0, written.slice(0, 160))
+  await sleep(900)
+  await run(`window.__t.clear(); return true`)
+  await sleep(300)
+  await run(`window.__t.key('n'); return true`)
+  await sleep(300)
+  expect('файлът с подразбиранията не променя нищо', (await run('return window.__t.kinds()')).includes('note'))
+  fsx.rmSync('/tmp/w20-click-data/keybindings.json', { force: true })
+  did('свои клавиши: смяна, грешка, връщане, шаблон')
+  await drain('клавишите')
 
   await sleep(600)
   await drain('накрая')

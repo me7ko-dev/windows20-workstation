@@ -5,6 +5,7 @@ import { mountLauncher } from './nodes/launcher.js'
 import { mountSettings } from './nodes/settings.js'
 import { mountWeb } from './nodes/web.js'
 import { mountFiles } from './nodes/files.js'
+import { mountChat } from './nodes/chat.js'
 import { layout as fieldLayout, placeFor, compact, inField, usedFields, neighbourIn, CAPACITY } from './fields.js'
 import { STYLES, randomPicture, accentOf } from './pictures.js'
 import { pictures } from './picture-store.js'
@@ -40,7 +41,8 @@ const ICONS = {
   files: '▤',
   note: '✎',
   settings: '⚙',
-  launcher: '↗'
+  launcher: '↗',
+  chat: '✦'
 }
 
 const DEFAULT_SIZES = {
@@ -49,7 +51,8 @@ const DEFAULT_SIZES = {
   launcher: { width: 320, height: 300 },
   settings: { width: 380, height: 420 },
   web: { width: 960, height: 640 },
-  files: { width: 400, height: 480 }
+  files: { width: 400, height: 480 },
+  chat: { width: 460, height: 580 }
 }
 
 /** How far outside the viewport a window is still worth painting. */
@@ -66,6 +69,8 @@ export function createDesktop({ plane, canvas, programs, home, speaker, insets, 
   let activeIndex = 0
   const live = new Map() // nodeId -> { win, content }
   let focusedId = null
+  // Where "› В терминала" from the chat types — the terminal last touched.
+  let lastTerminalId = null
   const planes = new Map() // workspaceId -> plane element
   const listeners = new Set()
   let saveTimer = null
@@ -214,6 +219,22 @@ export function createDesktop({ plane, canvas, programs, home, speaker, insets, 
           scheduleSave()
         }
       })
+    } else if (node.type === 'chat') {
+      content = mountChat(win, {
+        messages: node.messages || [],
+        speaker,
+        openSettings: () => openSettings(),
+        sendToTerminal: (text) => {
+          const target = terminalForChat()
+          if (!target) return null
+          target.content.send(text)
+          return target.win.node.title
+        },
+        onChange: (messages) => {
+          node.messages = messages
+          scheduleSave()
+        }
+      })
     } else if (node.type === 'launcher') {
       const program = programs.find((p) => p.id === node.programId)
       content = program ? mountLauncher(win, { program }) : null
@@ -323,6 +344,8 @@ export function createDesktop({ plane, canvas, programs, home, speaker, insets, 
 
   function setFocus(id) {
     focusedId = id
+    const entry = live.get(id)
+    if (entry && entry.win.node.type === 'terminal') lastTerminalId = id
     for (const [nid, entry] of live) entry.win.setFocused(nid === id)
     const ws = activeWorkspace()
     if (tiledMode(ws) && lastLayout) drawFrames(ws, lastLayout)
@@ -931,6 +954,31 @@ export function createDesktop({ plane, canvas, programs, home, speaker, insets, 
     return addNode({ type: 'settings', title: 'Настройки', accent: '#9aa2b1', width: 460, height: 640 })
   }
 
+  /** The terminal the chat types into: the last one touched on this station. */
+  function terminalForChat() {
+    const ws = activeWorkspace()
+    const here = (id) => id && live.has(id) && ws.nodes.some((n) => n.id === id)
+    const id = here(lastTerminalId) ? lastTerminalId : (ws.nodes.find((n) => n.type === 'terminal' && live.has(n.id)) || {}).id
+    return id ? live.get(id) : null
+  }
+
+  /** One chat per station is enough — the key brings it back rather than adding another. */
+  function openChat(question = '') {
+    const ws = activeWorkspace()
+    const found = ws.nodes.find((n) => n.type === 'chat')
+    const entry = found ? live.get(found.id) : null
+    if (entry) {
+      if (ws.solo && ws.solo !== found.id) expand(ws.solo)
+      focusNode(found.id)
+      entry.win.focusInView()
+      if (question && entry.content.ask) entry.content.ask(question)
+      return entry
+    }
+    const made = addNode({ type: 'chat', title: 'ИИ чат', messages: [], accent: '#c4b5fd' })
+    if (made && question && made.content && made.content.ask) made.content.ask(question)
+    return made
+  }
+
   function openNote(text = '', size = {}) {
     return addNode({ type: 'note', title: 'Бележка', text, accent: '#ffd166', ...size })
   }
@@ -1122,6 +1170,7 @@ export function createDesktop({ plane, canvas, programs, home, speaker, insets, 
     openFiles,
     openNote,
     openSettings,
+    openChat,
     closeNode,
     closeFocused,
     focusedNode,

@@ -11,6 +11,33 @@
   --titlebar-h: 38px;
   --bar-h: 92px;
   --wallpaper: linear-gradient(160deg, #0b0d12, #131824);
+  /* Channels, so one token serves every opacity: rgb(var(--ink) / 0.05). */
+  --ink: 255 255 255;
+  --panel: 10 12 18;
+  --sunk: 0 0 0;
+  --surface-solid: #14181f;
+  --ok: #6ee7a8;
+  --bad: #ff8080;
+  color-scheme: dark;
+}
+
+/* Light. The pictures stay what they are — the windows, bars and cards over
+   them turn to paper. Chosen in Settings or with Ctrl+Alt+L. */
+:root[data-theme='light'] {
+  --bg: #e9edf3;
+  --surface: rgba(252, 253, 255, 0.9);
+  --surface-strong: rgba(255, 255, 255, 0.97);
+  --border: rgba(20, 26, 38, 0.13);
+  --border-strong: rgba(20, 26, 38, 0.24);
+  --text: #141821;
+  --text-muted: #566072;
+  --ink: 22 28 40;
+  --panel: 246 248 251;
+  --sunk: 255 255 255;
+  --surface-solid: #ffffff;
+  --ok: #0f8a4f;
+  --bad: #c92a2a;
+  color-scheme: light;
 }
 
 * {
@@ -111,7 +138,7 @@ body.is-booting .w20-shell {
   display: flex;
   align-items: center;
   padding: 0 14px;
-  background: rgba(8, 10, 14, 0.92);
+  background: rgb(var(--panel) / 0.92);
   border-bottom: 1px solid var(--border);
   -webkit-app-region: drag;
   z-index: 200;
@@ -167,7 +194,7 @@ body.is-booting .w20-shell {
 .w20-plane-bg {
   position: absolute;
   inset: -220px;
-  background-image: radial-gradient(circle, var(--grid-color, rgba(255, 255, 255, 0.07)) 1px, transparent 1px);
+  background-image: radial-gradient(circle, var(--grid-color, rgb(var(--ink) / 0.07)) 1px, transparent 1px);
   background-size: 32px 32px;
   pointer-events: none;
   will-change: transform;
@@ -291,7 +318,7 @@ body.is-booting .w20-shell {
   align-items: center;
   gap: 9px;
   padding: 9px 10px 9px 12px;
-  background: rgba(255, 255, 255, 0.035);
+  background: rgb(var(--ink) / 0.035);
   border-bottom: 1px solid var(--border);
   cursor: grab;
   flex-shrink: 0;
@@ -329,11 +356,11 @@ body.is-booting .w20-shell {
 }
 
 .w20-window-badge[data-tone='live'] {
-  color: #6ee7a8;
+  color: var(--ok);
 }
 
 .w20-window-badge[data-tone='error'] {
-  color: #ff8080;
+  color: var(--bad);
 }
 
 .w20-window-close {
@@ -349,7 +376,7 @@ body.is-booting .w20-shell {
 
 .w20-window-close:hover {
   background: rgba(255, 90, 90, 0.18);
-  color: #ff9b9b;
+  color: var(--bad);
 }
 
 .w20-window-body {
@@ -543,7 +570,7 @@ body.is-booting .w20-shell {
   height: 32px;
   border-radius: 50%;
   border: 1px solid var(--border-strong);
-  background: rgba(255, 255, 255, 0.05);
+  background: rgb(var(--ink) / 0.05);
   color: var(--text-muted);
   font-size: 13px;
   cursor: pointer;
@@ -607,7 +634,7 @@ body.is-booting .w20-shell {
   padding: 0 7px;
   border-radius: 7px;
   border: 1px solid var(--border);
-  background: rgba(255, 255, 255, 0.04);
+  background: rgb(var(--ink) / 0.04);
   color: var(--text-muted);
   font-size: 13px;
   cursor: pointer;
@@ -627,7 +654,7 @@ body.is-booting .w20-shell {
   padding: 0 9px;
   border-radius: 7px;
   border: 1px solid var(--border);
-  background: rgba(0, 0, 0, 0.3);
+  background: rgb(var(--sunk) / 0.3);
   color: var(--text);
   font-family: inherit;
   font-size: 12px;
@@ -699,7 +726,7 @@ body.is-booting .w20-shell {
 }
 
 .w20-files-row:hover {
-  background: rgba(255, 255, 255, 0.05);
+  background: rgb(var(--ink) / 0.05);
   color: var(--text);
 }
 
@@ -760,7 +787,7 @@ body.is-booting .w20-shell {
 .w20-map-canvas {
   display: block;
   border-radius: 7px;
-  background: rgba(0, 0, 0, 0.32);
+  background: rgb(var(--sunk) / 0.32);
   cursor: crosshair;
 }
 
@@ -867,7 +894,7 @@ body.is-booting .w20-shell {
 }
 
 .w20-tab:hover {
-  background: rgba(255, 255, 255, 0.06);
+  background: rgb(var(--ink) / 0.06);
 }
 
 .w20-tab.is-active {
@@ -1036,7 +1063,7 @@ body.is-booting .w20-shell {
 
 .w20-toast-close:hover {
   color: var(--text);
-  background: rgba(255, 255, 255, 0.08);
+  background: rgb(var(--ink) / 0.08);
 }
 
 /* --------------------------------------------------------------- voice */
@@ -1099,7 +1126,7 @@ body.is-booting .w20-shell {
 .w20-field select {
   border: 1px solid var(--border);
   border-radius: 9px;
-  background: rgba(255, 255, 255, 0.04);
+  background: rgb(var(--ink) / 0.04);
   color: var(--text);
   padding: 9px 11px;
   font-size: 13px;
@@ -1109,7 +1136,7 @@ body.is-booting .w20-shell {
 }
 
 .w20-field select option {
-  background: #14181f;
+  background: var(--surface-solid);
 }
 
 .w20-field input:focus,
@@ -1197,14 +1224,14 @@ body.is-fields .w20-viewport {
   top: 0;
   left: 0;
   border-radius: 18px;
-  background: rgba(8, 10, 16, 0.18);
-  border: 1px solid rgba(255, 255, 255, 0.06);
+  background: rgb(var(--panel) / 0.18);
+  border: 1px solid rgb(var(--ink) / 0.06);
   transition: border-color 160ms ease, background 160ms ease;
 }
 
 .w20-field-frame.is-current {
   border-color: color-mix(in srgb, var(--accent) 45%, transparent);
-  background: color-mix(in srgb, var(--accent) 5%, rgba(8, 10, 16, 0.18));
+  background: color-mix(in srgb, var(--accent) 5%, rgb(var(--panel) / 0.18));
 }
 
 .w20-field-tag {
@@ -1217,8 +1244,8 @@ body.is-fields .w20-viewport {
   font-weight: 700;
   letter-spacing: 0.06em;
   color: var(--text);
-  background: rgba(10, 12, 18, 0.9);
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgb(var(--panel) / 0.9);
+  border: 1px solid rgb(var(--ink) / 0.1);
   z-index: 1;
 }
 
@@ -1264,7 +1291,7 @@ body.is-fields .w20-viewport {
 }
 
 .w20-window.is-focused .w20-window-bar {
-  background: color-mix(in srgb, var(--node-accent) 10%, rgba(255, 255, 255, 0.03));
+  background: color-mix(in srgb, var(--node-accent) 10%, rgb(var(--ink) / 0.03));
 }
 
 .w20-window-icon {
@@ -1309,8 +1336,8 @@ body.is-fields .w20-dock-item {
   width: min(640px, calc(100% - 200px));
   padding: 26px 28px 22px;
   border-radius: 22px;
-  background: rgba(10, 12, 18, 0.62);
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgb(var(--panel) / 0.62);
+  border: 1px solid rgb(var(--ink) / 0.1);
   backdrop-filter: blur(22px) saturate(1.2);
   box-shadow: 0 30px 80px rgba(0, 0, 0, 0.5);
   text-align: center;
@@ -1342,8 +1369,8 @@ body.is-fields .w20-dock-item {
   gap: 6px;
   padding: 14px 8px 11px;
   border-radius: 14px;
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgb(var(--ink) / 0.08);
+  background: rgb(var(--ink) / 0.04);
   color: var(--text);
   font: inherit;
   font-size: 12.5px;
@@ -1368,7 +1395,7 @@ body.is-fields .w20-dock-item {
   font-family: inherit;
   font-size: 10px;
   color: var(--text-muted);
-  border: 1px solid rgba(255, 255, 255, 0.12);
+  border: 1px solid rgb(var(--ink) / 0.12);
   border-radius: 5px;
   padding: 0 5px;
 }
@@ -1394,7 +1421,7 @@ body.is-fields .w20-dock-item {
   align-items: center;
   overflow-y: auto;
   padding: 0 0 30px;
-  background: rgba(4, 5, 9, 0.72);
+  background: rgb(var(--panel) / 0.72);
   backdrop-filter: blur(26px) saturate(1.15);
   opacity: 0;
   transition: opacity 200ms ease;
@@ -1434,7 +1461,7 @@ body.is-fields .w20-dock-item {
 .w20-overview kbd {
   font-family: inherit;
   font-size: 10.5px;
-  border: 1px solid rgba(255, 255, 255, 0.14);
+  border: 1px solid rgb(var(--ink) / 0.14);
   border-radius: 5px;
   padding: 0 5px;
   color: var(--text);
@@ -1470,7 +1497,7 @@ body.is-fields .w20-dock-item {
   border-radius: 14px;
   overflow: hidden;
   background: #0a0c12 center / cover no-repeat;
-  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(255, 255, 255, 0.08);
+  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.5), 0 0 0 1px rgb(var(--ink) / 0.08);
   transition: box-shadow 140ms ease, transform 140ms ease;
 }
 
@@ -1507,8 +1534,8 @@ body.is-fields .w20-dock-item {
   top: 0;
   left: 0;
   border-radius: 6px;
-  background: rgba(12, 14, 20, 0.86);
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgb(var(--panel) / 0.86);
+  border: 1px solid rgb(var(--ink) / 0.1);
   border-top: 2px solid var(--node-accent);
   overflow: hidden;
 }
@@ -1601,7 +1628,7 @@ body.is-fields .w20-dock-item {
 
 .w20-card-close:hover,
 .w20-card-close.is-armed {
-  color: #ff9b9b;
+  color: var(--bad);
   background: rgba(255, 90, 90, 0.16);
 }
 
@@ -1611,8 +1638,8 @@ body.is-fields .w20-dock-item {
   align-items: center;
   justify-content: center;
   gap: 4px;
-  background: rgba(255, 255, 255, 0.03);
-  border: 1px dashed rgba(255, 255, 255, 0.18);
+  background: rgb(var(--ink) / 0.03);
+  border: 1px dashed rgb(var(--ink) / 0.18);
   box-shadow: none;
 }
 
@@ -1651,7 +1678,7 @@ body.is-fields .w20-dock-item {
   max-width: calc(100% - 60px);
   padding: 9px 14px;
   border-radius: 12px;
-  background: rgba(10, 12, 18, 0.92);
+  background: rgb(var(--panel) / 0.92);
   border: 1px solid color-mix(in srgb, var(--accent) 50%, transparent);
   box-shadow: 0 16px 40px rgba(0, 0, 0, 0.5);
   font-size: 12px;
@@ -1676,11 +1703,11 @@ body.is-fields .w20-dock-item {
   font-family: inherit;
   font-size: 10.5px;
   color: var(--text);
-  border: 1px solid rgba(255, 255, 255, 0.16);
+  border: 1px solid rgb(var(--ink) / 0.16);
   border-bottom-width: 2px;
   border-radius: 5px;
   padding: 0 5px;
-  background: rgba(255, 255, 255, 0.04);
+  background: rgb(var(--ink) / 0.04);
   white-space: nowrap;
 }
 
@@ -1692,7 +1719,7 @@ body.is-fields .w20-dock-item {
   z-index: 190;
   display: grid;
   place-items: center;
-  background: rgba(3, 4, 8, 0.6);
+  background: rgb(var(--panel) / 0.6);
   backdrop-filter: blur(10px);
 }
 
@@ -1706,8 +1733,8 @@ body.is-fields .w20-dock-item {
   overflow-y: auto;
   padding: 22px 26px;
   border-radius: 20px;
-  background: rgba(12, 14, 20, 0.95);
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgb(var(--panel) / 0.95);
+  border: 1px solid rgb(var(--ink) / 0.1);
   box-shadow: 0 30px 80px rgba(0, 0, 0, 0.6);
 }
 
@@ -1750,7 +1777,7 @@ body.is-fields .w20-dock-item {
   gap: 12px;
   padding: 4px 0;
   font-size: 12.5px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+  border-bottom: 1px solid rgb(var(--ink) / 0.04);
 }
 
 .w20-sheet-row span:last-child {
@@ -1780,4 +1807,252 @@ body.is-fields .w20-dock-item {
 .w20-check input {
   margin: 2px 0 0;
   accent-color: var(--accent);
+}
+
+/* --------------------------------------------------------------- AI chat */
+
+.w20-chat {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+
+.w20-chat-log {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 14px 14px 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  user-select: text;
+}
+
+.w20-chat-msg {
+  max-width: 92%;
+  font-size: 13.5px;
+  line-height: 1.55;
+}
+
+.w20-chat-msg.is-user {
+  align-self: flex-end;
+  padding: 8px 12px;
+  border-radius: 14px 14px 4px 14px;
+  background: color-mix(in srgb, var(--node-accent) 22%, rgb(var(--ink) / 0.04));
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.w20-chat-msg.is-assistant {
+  align-self: stretch;
+  max-width: 100%;
+}
+
+.w20-chat-msg.is-error .w20-chat-body {
+  color: var(--bad);
+}
+
+.w20-chat-text {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.w20-chat-text code {
+  padding: 1px 5px;
+  border-radius: 5px;
+  background: rgb(var(--ink) / 0.08);
+  font-family: 'Cascadia Mono', Consolas, monospace;
+  font-size: 12.5px;
+}
+
+.w20-chat-msg.is-streaming .w20-chat-body::after {
+  content: '▍';
+  color: var(--node-accent);
+  animation: w20-caret 900ms steps(2) infinite;
+}
+
+@keyframes w20-caret {
+  50% {
+    opacity: 0;
+  }
+}
+
+.w20-chat-code {
+  margin: 8px 0;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  overflow: hidden;
+  background: rgb(var(--sunk) / 0.32);
+}
+
+.w20-chat-code pre {
+  margin: 0;
+  padding: 10px 12px;
+  overflow-x: auto;
+  font-family: 'Cascadia Mono', Consolas, monospace;
+  font-size: 12.5px;
+  line-height: 1.5;
+  user-select: text;
+}
+
+.w20-chat-code-bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 6px 4px 12px;
+  border-bottom: 1px solid var(--border);
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.w20-chat-code-bar span {
+  flex: 1;
+  text-transform: lowercase;
+}
+
+.w20-chat-code-bar button,
+.w20-chat-foot button,
+.w20-chat-inline,
+.w20-chat-empty button,
+.w20-sheet-edit {
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: rgb(var(--ink) / 0.04);
+  color: var(--text);
+  font: inherit;
+  font-size: 11.5px;
+  padding: 3px 8px;
+  cursor: pointer;
+}
+
+.w20-chat-code-bar button:hover,
+.w20-chat-foot button:hover,
+.w20-chat-inline:hover,
+.w20-chat-empty button:hover,
+.w20-sheet-edit:hover {
+  border-color: var(--node-accent, var(--accent));
+}
+
+.w20-chat-inline {
+  display: block;
+  margin-top: 8px;
+}
+
+.w20-chat-foot {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 4px;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.w20-chat-foot span {
+  flex: 1;
+}
+
+.w20-chat-empty {
+  margin: auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  text-align: center;
+  color: var(--text-muted);
+}
+
+.w20-chat-empty b {
+  font-size: 30px;
+  color: var(--node-accent);
+}
+
+.w20-chat-empty p {
+  margin: 0 0 4px;
+}
+
+.w20-chat-empty button {
+  font-size: 12.5px;
+  padding: 6px 12px;
+}
+
+.w20-chat-compose {
+  display: flex;
+  gap: 8px;
+  padding: 10px 12px 12px;
+  border-top: 1px solid var(--border);
+}
+
+.w20-chat-compose textarea {
+  flex: 1;
+  min-height: 42px;
+  max-height: 160px;
+  resize: vertical;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: rgb(var(--sunk) / 0.3);
+  color: var(--text);
+  font: inherit;
+  font-size: 13.5px;
+  padding: 9px 11px;
+  outline: none;
+  user-select: text;
+}
+
+.w20-chat-compose textarea:focus {
+  border-color: var(--node-accent);
+}
+
+.w20-chat-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.w20-chat-btn {
+  width: 34px;
+  height: 34px;
+  border-radius: 9px;
+  border: 1px solid var(--border);
+  background: rgb(var(--ink) / 0.05);
+  color: var(--text);
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.w20-chat-btn.is-send {
+  background: var(--node-accent);
+  border-color: transparent;
+  color: #0b0d12;
+}
+
+.w20-chat-btn[hidden] {
+  display: none;
+}
+
+.w20-settings-hint {
+  margin: 0;
+  font-size: 11.5px;
+  line-height: 1.5;
+  color: var(--text-muted);
+}
+
+.w20-sheet-edit {
+  margin-right: 8px;
+}
+
+.w20-sheet-row.is-custom span:first-child::after {
+  content: ' · свой';
+  color: var(--accent);
+  font-size: 10.5px;
+}
+
+.w20-sheet-row small {
+  color: var(--text-muted);
+}
+
+/* Light: the station's accent colours are picked for a dark page; as text
+   on paper they need to be deeper. */
+:root[data-theme='light'] .w20-note {
+  background: rgba(255, 209, 102, 0.14);
 }

@@ -3,7 +3,7 @@
 const path = require('path')
 const os = require('os')
 const fsp = require('fs/promises')
-const { app, BrowserWindow, ipcMain, shell, dialog, screen, Menu } = require('electron')
+const { app, BrowserWindow, ipcMain, shell, dialog, screen, Menu, globalShortcut, nativeTheme } = require('electron')
 
 const term = require('./pty')
 const { detect } = require('./programs')
@@ -13,11 +13,14 @@ const { transcribe } = require('./stt')
 const ai = require('./ai')
 const speech = require('./speech')
 const { catalog: providerCatalog } = require('./providers')
+const { createKeybindings } = require('./keybindings')
 
 let store = null
 let settings = null
+let keybindings = null
 let programCache = null
 let quitting = false
+let lastFocused = null
 
 /**
  * Every open station window, by the id of the webContents that asked. A station
@@ -93,6 +96,11 @@ function createWindow(stationId) {
   store.remember(id)
 
   win.once('ready-to-show', () => win.show())
+  // The global keys go to the station last in front.
+  lastFocused = win
+  win.on('focus', () => {
+    lastFocused = win
+  })
   win.loadFile(path.join(__dirname, '..', 'renderer', 'index.html'))
 
   // A canvas window opening a link must never navigate the shell itself away.
@@ -135,6 +143,18 @@ app.whenReady().then(() => {
   Menu.setApplicationMenu(null)
   store = createStore(app.getPath('userData'))
   settings = createSettings(app.getPath('userData'))
+  keybindings = createKeybindings(app.getPath('userData'))
+  applyTheme(settings.read().look.theme)
+  registerGlobal()
+  // Edited keybindings.json: every station takes the new keys, and so do the
+  // global ones, without a restart.
+  keybindings.watch(() => {
+    registerGlobal()
+    const result = keybindings.load()
+    for (const { win } of stations.values()) {
+      if (!win.isDestroyed()) win.webContents.send('keys:changed', result)
+    }
+  })
 
   // Three stations open at quit come back as three stations.
   const previous = store.order()
@@ -150,6 +170,11 @@ app.on('window-all-closed', () => {
   term.killAll()
   stopEditors()
   if (process.platform !== 'darwin') app.quit()
+})
+
+app.on('will-quit', () => {
+  globalShortcut.unregisterAll()
+  if (keybindings) keybindings.unwatch()
 })
 
 app.on('before-quit', () => {
@@ -469,11 +494,120 @@ ipcMain.handle('speech:say', async (_e, text) => {
 
 ipcMain.handle('providers:list', () => providerCatalog())
 
+/** Chats in flight, so the Stop button can cut one off. */
+const chats = new Map() // requestId -> AbortController
+
+ipcMain.handle('ai:chat', async (e, request) => {
+  if (!settings) return { ok: false, error: 'Настройките още не са заредени.' }
+  const requestId = String((request && request.requestId) || '')
+  const controller = new AbortController()
+  chats.set(requestId, controller)
+  const sender = e.sender
+  try {
+    return await ai.chat(
+      request || {},
+      settings,
+      (delta) => {
+        if (!sender.isDestroyed()) sender.send('ai:delta', { requestId, delta })
+      },
+      controller.signal
+    )
+  } finally {
+    chats.delete(requestId)
+  }
+})
+
+ipcMain.on('ai:stop', (_e, requestId) => {
+  const controller = chats.get(String(requestId))
+  if (controller) controller.abort()
+})
+
+/* ------------------------------------------------------------- the look */
+
+const TITLE_COLORS = {
+  dark: { color: '#0b0d12', symbolColor: '#eef1f7' },
+  light: { color: '#e9edf3', symbolColor: '#141821' }
+}
+
+function applyTheme(choice) {
+  nativeTheme.themeSource = choice === 'light' ? 'light' : choice === 'system' ? 'system' : 'dark'
+}
+
+ipcMain.on('ui:theme', (e, mode) => {
+  const colors = TITLE_COLORS[mode === 'light' ? 'light' : 'dark']
+  const station = stationOf(e)
+  if (settings) applyTheme(settings.read().look.theme)
+  for (const { win } of stations.values()) {
+    if (win.isDestroyed()) continue
+    try {
+      win.setBackgroundColor(colors.color)
+      // Only Windows (and a hidden title bar) draws an overlay to recolour.
+      if (process.platform === 'win32') win.setTitleBarOverlay({ ...colors, height: 38 })
+    } catch {
+      // no overlay on this platform
+    }
+    // The other stations follow the one where it was changed.
+    if (station && win !== station.win && settings) win.webContents.send('ui:theme', settings.read().look.theme)
+  }
+})
+
+/* -------------------------------------------------------- the keys file */
+
+ipcMain.handle('keys:load', () => (keybindings ? keybindings.load() : { keys: {}, problems: [] }))
+
+ipcMain.handle('keys:open', async (_e, defaults) => {
+  if (!keybindings) return { ok: false, error: 'още не е готово' }
+  const file = keybindings.ensure(defaults)
+  const error = await shell.openPath(file)
+  return error ? { ok: false, error, file } : { ok: true, file }
+})
+
+/**
+ * Keys that work from anywhere in Windows, with the station in the background
+ * or minimised: bring it forward, or bring it forward and start listening.
+ */
+function registerGlobal() {
+  globalShortcut.unregisterAll()
+  if (!keybindings) return
+  const wanted = keybindings.global()
+  const failed = []
+  for (const [what, accelerator] of Object.entries(wanted)) {
+    if (!accelerator) continue
+    let ok = false
+    try {
+      ok = globalShortcut.register(accelerator, () => globalKey(what))
+    } catch {
+      ok = false
+    }
+    // Taken by another program, or not a key Electron understands.
+    if (!ok) failed.push(`${accelerator}`)
+  }
+  keybindings.setGlobalProblems(failed)
+}
+
+function globalKey(what) {
+  const win = lastFocused && !lastFocused.isDestroyed() ? lastFocused : (ordered()[0] || {}).win
+  if (!win) {
+    createWindow()
+    return
+  }
+  // The same key hides it again, when it is already the window in front.
+  if (what === 'show' && win.isFocused() && win.isVisible() && !win.isMinimized()) {
+    win.minimize()
+    return
+  }
+  if (win.isMinimized()) win.restore()
+  win.show()
+  win.focus()
+  if (what !== 'show') win.webContents.send('ui:global', what)
+}
+
 ipcMain.handle('settings:get', () => (settings ? settings.safe() : null))
 
 ipcMain.handle('settings:set', (_e, patch) => {
   if (!settings) return null
   settings.write(patch || {})
+  if (patch && patch.look) applyTheme(settings.read().look.theme)
   return settings.safe()
 })
 

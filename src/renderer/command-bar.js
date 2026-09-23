@@ -8,6 +8,7 @@
  */
 
 import { createVoice } from './voice.js'
+import { toggleTheme, resolved as themeNow } from './theme.js'
 
 export function createCommandBar({ root, desktop, programs, canvas, toast, minimap, speaker }) {
   const el = document.createElement('div')
@@ -35,6 +36,7 @@ export function createCommandBar({ root, desktop, programs, canvas, toast, minim
 
   addBtn.addEventListener('click', () => desktop.addWorkspace())
   let overviewHandler = null
+  let editKeysHandler = null
   el.querySelector('[data-role="overview"]').addEventListener('click', () => overviewHandler && overviewHandler())
 
   const voice = createVoice({
@@ -159,6 +161,27 @@ export function createCommandBar({ root, desktop, programs, canvas, toast, minim
             flash(`Папката вече е ${dir}`)
           }
         }
+      },
+      {
+        id: 'ai:chat',
+        label: 'ИИ чат',
+        hint: 'Ctrl+Shift+I — разговор, отговорът идва докато се пише',
+        keywords: ['чат', 'chat', 'ии', 'ai', 'разговор', 'питай', 'помощник', 'грок', 'grok', 'gemini'],
+        run: () => desktop.openChat()
+      },
+      {
+        id: 'look:theme',
+        label: themeNow() === 'light' ? 'Тъмна тема' : 'Светла тема',
+        hint: 'Ctrl+Alt+L',
+        keywords: ['тема', 'светла', 'тъмна', 'светло', 'тъмно', 'theme', 'light', 'dark', 'ден', 'нощ'],
+        run: () => flash(toggleTheme() === 'light' ? 'Светла тема' : 'Тъмна тема')
+      },
+      {
+        id: 'keys:edit',
+        label: 'Промени клавишите',
+        hint: 'keybindings.json — сменя се веднага',
+        keywords: ['клавиши', 'клавиш', 'комбинации', 'keybindings', 'keys', 'shortcuts', 'промени'],
+        run: () => editKeysHandler && editKeysHandler()
       },
       {
         id: 'sys:settings',
@@ -416,7 +439,10 @@ export function createCommandBar({ root, desktop, programs, canvas, toast, minim
     // know may still be something the station can do.
     const ask =
       query.length >= 2
-        ? [{ id: 'ai:ask', label: 'Попитай ИИ', hint: `„${query}“`, run: () => askAI(query, { spoken: false }) }]
+        ? [
+            { id: 'ai:ask', label: 'Попитай ИИ', hint: `„${query}“`, run: () => askAI(query, { spoken: false }) },
+            { id: 'ai:chat-ask', label: 'Питай в ИИ чата', hint: 'дълъг отговор, с код', run: () => desktop.openChat(query) }
+          ]
         : []
 
     matches = [...direct, ...nodeHits, ...found, ...ask]
@@ -671,6 +697,9 @@ export function createCommandBar({ root, desktop, programs, canvas, toast, minim
     toggleVoice: () => voice.toggle(),
     onOverview: (fn) => {
       overviewHandler = fn
+    },
+    onEditKeys: (fn) => {
+      editKeysHandler = fn
     },
     askAI,
     flash

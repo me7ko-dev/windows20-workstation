@@ -15,6 +15,8 @@
  * works everywhere, terminals included.
  */
 
+import { toggleTheme } from './theme.js'
+
 const DISPLAY = {
   Backquote: '`',
   Slash: '/',
@@ -70,6 +72,85 @@ function shellOwns(combo) {
   return /^Ctrl\+Key[A-Z]$/.test(combo)
 }
 
+const NAMED = {
+  left: 'ArrowLeft',
+  right: 'ArrowRight',
+  up: 'ArrowUp',
+  down: 'ArrowDown',
+  space: 'Space',
+  tab: 'Tab',
+  enter: 'Enter',
+  esc: 'Escape',
+  escape: 'Escape',
+  pgup: 'PageUp',
+  pageup: 'PageUp',
+  pgdn: 'PageDown',
+  pagedown: 'PageDown',
+  home: 'Home',
+  end: 'End',
+  insert: 'Insert',
+  delete: 'Delete',
+  backspace: 'Backspace',
+  plus: 'Equal',
+  '`': 'Backquote',
+  '/': 'Slash',
+  '=': 'Equal',
+  '+': 'Equal',
+  '-': 'Minus',
+  '\\': 'Backslash',
+  ',': 'Comma',
+  '.': 'Period',
+  ';': 'Semicolon',
+  "'": 'Quote',
+  '[': 'BracketLeft',
+  ']': 'BracketRight'
+}
+
+/**
+ * A combo as a person writes it ("Ctrl+Shift+T", "alt+left", "F4") to the
+ * form the table uses ("Ctrl+Shift+KeyT"). Null when it is not a key.
+ */
+export function normalize(text) {
+  if (typeof text !== 'string') return null
+  // "Ctrl++" means Ctrl and the plus key.
+  const parts = text.trim().replace(/\+\+$/, '+Plus').split('+').map((p) => p.trim()).filter(Boolean)
+  if (!parts.length) return null
+  const mods = new Set()
+  let key = null
+  for (const part of parts) {
+    const low = part.toLowerCase()
+    if (['ctrl', 'control', 'cmd', 'commandorcontrol', 'cmdorctrl'].includes(low)) mods.add('Ctrl')
+    else if (['alt', 'option'].includes(low)) mods.add('Alt')
+    else if (low === 'shift') mods.add('Shift')
+    else if (key) return null
+    else key = part
+  }
+  if (!key) return null
+  let code = null
+  if (/^[a-z]$/i.test(key)) code = `Key${key.toUpperCase()}`
+  else if (/^[0-9]$/.test(key)) code = `Digit${key}`
+  else if (/^f([1-9]|1[0-9]|2[0-4])$/i.test(key)) code = key.toUpperCase()
+  else if (/^(Key[A-Z]|Digit[0-9]|Arrow(Left|Right|Up|Down)|Numpad\w+)$/.test(key)) code = key
+  else if (NAMED[key.toLowerCase()]) code = NAMED[key.toLowerCase()]
+  else if (/^(Space|Tab|Enter|Escape|PageUp|PageDown|Backquote|Slash|Equal|Minus)$/.test(key)) code = key
+  if (!code) return null
+  return ['Ctrl', 'Alt', 'Shift'].filter((m) => mods.has(m)).concat(code).join('+')
+}
+
+/** The table's form back to what a person writes — for keybindings.json. */
+export function human(combo) {
+  const back = { Backquote: '`', Slash: '/', Equal: '=', Minus: '-' }
+  return combo
+    .split('+')
+    .map((part) => {
+      if (/^Key[A-Z]$/.test(part)) return part.slice(3)
+      if (/^Digit\d$/.test(part)) return part.slice(5)
+      if (/^Arrow/.test(part)) return part.slice(5)
+      return back[part] || part
+    })
+    .join('+')
+}
+
 let active = null
 
 /**
@@ -92,12 +173,14 @@ export function createKeymap(ctx) {
     /* ------------------------------------------------------- stations */
     {
       group: 'Станции',
+      id: 'station.overview',
       keys: ['F3', 'Ctrl+Shift+KeyA'],
       label: 'Всички станции — назад и избор',
       run: () => overview.toggle()
     },
     {
       group: 'Станции',
+      id: 'station.new',
       keys: ['Ctrl+Shift+KeyN'],
       label: 'Нова станция (със своя картина)',
       run: () => desktop.addWorkspace()
@@ -116,6 +199,7 @@ export function createKeymap(ctx) {
     },
     {
       group: 'Станции',
+      id: 'station.picture',
       keys: ['Ctrl+Shift+KeyB'],
       label: 'Друга картина за тази станция',
       run: () => {
@@ -125,6 +209,7 @@ export function createKeymap(ctx) {
     },
     {
       group: 'Станции',
+      id: 'station.layout',
       keys: ['Ctrl+Shift+KeyL'],
       label: 'Полета ↔ свободно платно',
       run: () => {
@@ -137,24 +222,28 @@ export function createKeymap(ctx) {
     /* -------------------------------------------------------- windows */
     {
       group: 'Прозорци',
+      id: 'window.terminal',
       keys: ['Ctrl+KeyT', 'Ctrl+Shift+KeyT'],
       label: 'Нов терминал (в свободно поле)',
       run: () => desktop.openTerminal()
     },
     {
       group: 'Прозорци',
+      id: 'window.terminalHere',
       keys: ['Ctrl+Alt+KeyT'],
       label: 'Нов терминал в същото поле',
       run: () => desktop.openTerminal({ sameField: true })
     },
     {
       group: 'Прозорци',
+      id: 'window.note',
       keys: ['Ctrl+KeyN'],
       label: 'Нова бележка',
       run: () => desktop.openNote()
     },
     {
       group: 'Прозорци',
+      id: 'window.close',
       keys: ['Ctrl+KeyW', 'Ctrl+Shift+KeyW'],
       label: 'Затвори избрания прозорец',
       run: () => {
@@ -163,6 +252,7 @@ export function createKeymap(ctx) {
     },
     {
       group: 'Прозорци',
+      id: 'window.expand',
       keys: ['Ctrl+Shift+KeyE'],
       label: 'Цял екран за прозореца (и обратно)',
       run: () => {
@@ -174,29 +264,36 @@ export function createKeymap(ctx) {
     },
     {
       group: 'Прозорци',
+      id: 'window.focusDirection',
+      order: 'ляво, дясно, горе, долу',
       keys: ['Alt+ArrowLeft', 'Alt+ArrowRight', 'Alt+ArrowUp', 'Alt+ArrowDown'],
       label: 'Към съседния прозорец',
-      run: (combo) => desktop.focusDirection(direction(combo))
+      run: (_combo, i) => desktop.focusDirection(DIRECTIONS[i % 4])
     },
     {
       group: 'Прозорци',
+      id: 'window.moveDirection',
+      order: 'ляво, дясно, горе, долу',
       keys: ['Alt+Shift+ArrowLeft', 'Alt+Shift+ArrowRight', 'Alt+Shift+ArrowUp', 'Alt+Shift+ArrowDown'],
       label: 'Размени прозореца със съседа / в свободно поле',
-      run: (combo) => {
-        if (!desktop.moveDirection(direction(combo))) say('Натам няма място')
+      run: (_combo, i) => {
+        if (!desktop.moveDirection(DIRECTIONS[i % 4])) say('Натам няма място')
       }
     },
     {
       group: 'Прозорци',
+      id: 'window.field',
+      order: 'поле 1, 2, 3, 4',
       keys: ['Alt+Digit1', 'Alt+Digit2', 'Alt+Digit3', 'Alt+Digit4'],
       label: 'Към поле 1…4',
-      run: (combo) => {
-        const field = Number(combo.slice(-1)) - 1
+      run: (_combo, i) => {
+        const field = i % 4
         if (!desktop.focusField(field)) say(`Поле ${field + 1} е празно`)
       }
     },
     {
       group: 'Прозорци',
+      id: 'window.tidy',
       keys: ['Ctrl+Shift+KeyG'],
       label: 'Подреди',
       run: () => {
@@ -208,30 +305,56 @@ export function createKeymap(ctx) {
     /* ------------------------------------------------------ the rest */
     {
       group: 'Лента, глас, ИИ',
+      id: 'bar.focus',
       keys: ['Ctrl+KeyK', 'Ctrl+Shift+KeyK'],
       label: 'Командната лента (и „Попитай ИИ“)',
       run: () => bar.focus()
     },
     {
       group: 'Лента, глас, ИИ',
+      id: 'bar.voice',
       keys: ['Ctrl+Shift+Space'],
       label: 'Говори — команда или диктовка в терминала',
       run: () => bar.toggleVoice()
     },
     {
       group: 'Лента, глас, ИИ',
+      id: 'leader',
       keys: ['Ctrl+Space'],
       label: 'Водещ клавиш — после една буква (виж долу)',
       run: () => leader.start()
     },
     {
       group: 'Лента, глас, ИИ',
+      id: 'help',
       keys: ['F1', 'Ctrl+Slash'],
       label: 'Тази шпаргалка',
       run: () => cheatsheet.toggle()
     },
     {
+      group: 'Лента, глас, ИИ',
+      id: 'ai.chat',
+      keys: ['Ctrl+Shift+KeyI'],
+      label: 'ИИ чат — прозорец за разговор',
+      run: () => desktop.openChat()
+    },
+    {
+      group: 'Изглед',
+      id: 'look.theme',
+      keys: ['Ctrl+Alt+KeyL'],
+      label: 'Светла ↔ тъмна тема',
+      run: () => say(toggleTheme() === 'light' ? 'Светла тема' : 'Тъмна тема')
+    },
+    {
+      group: 'Изглед',
+      id: 'keys.edit',
+      keys: [],
+      label: 'Промени клавишите (keybindings.json)',
+      run: () => editKeys()
+    },
+    {
       group: 'Прозорци на Windows',
+      id: 'os.newWindow',
       keys: ['Ctrl+Alt+KeyN'],
       label: 'Нов прозорец на Windows (отделни станции)',
       run: async () => {
@@ -241,15 +364,18 @@ export function createKeymap(ctx) {
     },
     {
       group: 'Прозорци на Windows',
+      id: 'os.cycle',
+      order: 'напред, назад',
       keys: ['Ctrl+Backquote', 'Ctrl+Shift+Backquote'],
       label: 'Обърни към следващия / предишния прозорец',
-      run: async (combo) => {
-        const to = await window.w20.station.cycle(combo.includes('Shift') ? -1 : 1)
+      run: async (_combo, i) => {
+        const to = await window.w20.station.cycle(i === 1 ? -1 : 1)
         if (!to) say('Има само един прозорец — Ctrl+Alt+N отваря втори')
       }
     },
     {
       group: 'Свободно платно',
+      id: 'canvas.minimap',
       keys: ['Ctrl+KeyM', 'Ctrl+Shift+KeyM'],
       label: 'Картата на платното',
       run: () => {
@@ -259,6 +385,7 @@ export function createKeymap(ctx) {
     },
     {
       group: 'Свободно платно',
+      id: 'canvas.fit',
       keys: ['Ctrl+Shift+Digit0'],
       label: 'Побери всичко в екрана',
       run: () => {
@@ -269,20 +396,96 @@ export function createKeymap(ctx) {
     },
     {
       group: 'Свободно платно',
+      id: 'canvas.zoom',
+      order: 'по-близо, по-далеч',
       keys: ['Ctrl+Equal', 'Ctrl+Minus'],
       label: 'Мащаб (Ctrl + колелце също)',
-      run: (combo) => (combo.endsWith('Equal') ? canvas.zoomIn() : canvas.zoomOut())
+      run: (_combo, i) => (i === 0 ? canvas.zoomIn() : canvas.zoomOut())
     }
   ]
 
-  function direction(combo) {
-    return combo.endsWith('Left') ? 'left' : combo.endsWith('Right') ? 'right' : combo.endsWith('Up') ? 'up' : 'down'
+  // Keys that come in fours say which one by their place in the list, so a
+  // user's own Alt+H/J/K/L still means left, down, up, right.
+  const DIRECTIONS = ['left', 'right', 'up', 'down']
+
+  for (const b of bindings) b.defaults = b.keys.slice()
+
+  const table = new Map() // combo -> { binding, index }
+
+  /**
+   * The defaults, with the user's keybindings.json on top. A combo claimed by
+   * two shortcuts goes to the one the user named; the other loses it and the
+   * user is told.
+   */
+  function build(overrides = {}) {
+    const problems = []
+    table.clear()
+    for (const b of bindings) {
+      if (!b.run || !b.id) {
+        b.keys = b.defaults.slice()
+        continue
+      }
+      const own = Object.prototype.hasOwnProperty.call(overrides, b.id)
+      const wanted = own ? overrides[b.id] : b.defaults
+      b.keys = []
+      for (const raw of wanted) {
+        const combo = own ? normalize(raw) : raw
+        if (!combo) {
+          problems.push(`„${raw}“ (${b.id}) не е клавиш, който познавам`)
+          continue
+        }
+        if (!b.keys.includes(combo)) b.keys.push(combo)
+      }
+      // A file written with every default is not every key changed.
+      b.custom = own && b.keys.join(' ') !== b.defaults.join(' ')
+    }
+    for (const id of Object.keys(overrides)) {
+      if (!bindings.some((b) => b.id === id)) problems.push(`няма такова действие: „${id}“`)
+    }
+    // Defaults first, then the user's own, so the user's win a clash.
+    const order = bindings.filter((b) => b.run && !b.custom).concat(bindings.filter((b) => b.run && b.custom))
+    for (const b of order) {
+      b.keys.forEach((combo, index) => {
+        const before = table.get(combo)
+        if (before && before.binding !== b) {
+          if (b.custom && before.binding.custom) problems.push(`${human(combo)} е дадено два пъти — остава за „${b.label}“`)
+          before.binding.keys = before.binding.keys.filter((k) => k !== combo)
+        }
+        table.set(combo, { binding: b, index })
+      })
+    }
+    return problems
+  }
+  build()
+
+  /** Read keybindings.json again — at start, and whenever it is saved. */
+  async function reload(given) {
+    const loaded = given || (window.w20.keys ? await window.w20.keys.load() : null)
+    if (!loaded) return []
+    const problems = (loaded.problems || []).concat(build(loaded.keys || {}))
+    globalKeys = loaded.global || globalKeys
+    if (!sheet.hidden) renderSheet()
+    if (problems.length) toast(`Клавиши: ${problems.slice(0, 3).join(' · ')}`, { tone: 'warn', timeout: 8000 })
+    return problems
+  }
+  let globalKeys = {}
+  if (window.w20.keys) {
+    window.w20.keys.onChange((loaded) => {
+      reload(loaded).then((problems) => {
+        if (!problems.length) say('Клавишите са обновени от keybindings.json')
+      })
+    })
   }
 
-  const table = new Map()
-  for (const b of bindings) {
-    if (!b.run) continue
-    for (const k of b.keys) table.set(k, b)
+  /** keybindings.json in the system editor — written with every default first. */
+  async function editKeys() {
+    if (!window.w20.keys) return
+    const defaults = bindings
+      .filter((b) => b.run && b.id)
+      .map((b) => ({ id: b.id, label: `${b.group}: ${b.label}${b.order ? ` (по ред: ${b.order})` : ''}`, keys: b.defaults.map(human) }))
+    const result = await window.w20.keys.open(defaults)
+    if (result.ok) say('keybindings.json е отворен — запази го и клавишите се сменят веднага')
+    else toast(`Не можах да отворя ${result.file || 'keybindings.json'}: ${result.error}`, { tone: 'warn' })
   }
 
   /** Station by number, and the Tab walk — ranges rather than rows. */
@@ -316,6 +519,8 @@ export function createKeymap(ctx) {
     ['KeyF', 'файлове', () => desktop.openFiles()],
     ['KeyN', 'бележка', () => desktop.openNote()],
     ['KeyA', 'питай ИИ', () => bar.focus('')],
+    ['KeyI', 'ИИ чат', () => desktop.openChat()],
+    ['KeyD', 'светла / тъмна', () => say(toggleTheme() === 'light' ? 'Светла тема' : 'Тъмна тема')],
     ['KeyV', 'говори', () => bar.toggleVoice()],
     ['KeyC', 'Claude Code', () => openProgram('claude')],
     ['KeyG', 'Gemini', () => openProgram('gemini')],
@@ -408,8 +613,9 @@ export function createKeymap(ctx) {
     for (const [group, list] of groups) {
       html += `<section><h3>${group}</h3>`
       for (const b of list) {
-        const keys = b.keys.length === 4 && b.keys[0].startsWith('Alt') ? [b.keys[0].replace(/Arrow\w+$|Digit\d$/, (m) => (m.startsWith('Arrow') ? '←↑→↓' : '1…4'))] : b.keys
-        html += `<div class="w20-sheet-row"><span>${b.label}</span><span>${keys.map(keyHtml).join(' ')}</span></div>`
+        const keys = !b.custom && b.keys.length === 4 && b.keys[0].startsWith('Alt') ? [b.keys[0].replace(/Arrow\w+$|Digit\d$/, (m) => (m.startsWith('Arrow') ? '←↑→↓' : '1…4'))] : b.keys
+        const shown = keys.length ? keys.map(keyHtml).join(' ') : '<small>без клавиш</small>'
+        html += `<div class="w20-sheet-row${b.custom ? ' is-custom' : ''}"><span>${b.label}</span><span>${shown}</span></div>`
       }
       html += '</section>'
     }
@@ -417,7 +623,17 @@ export function createKeymap(ctx) {
     for (const [k, what] of LEADER) {
       html += `<div class="w20-sheet-row"><span>${what}</span><span><kbd>${display(k).replace('Shift+Slash', '?').replace('Shift+', '⇧')}</kbd></span></div>`
     }
-    html += `</section></div><p class="w20-sheet-note">В терминал Ctrl+буква е на програмата в него (Ctrl+C спира, Ctrl+W трие дума). Станцията слуша там на Ctrl+Shift+… · Ctrl+Shift+C / Ctrl+Shift+V копира и поставя.</p></div>`
+    html += `</section>`
+    const globals = Object.entries(globalKeys).filter(([, k]) => k)
+    if (globals.length) {
+      const what = { show: 'покажи / скрий станцията', voice: 'покажи и слушай' }
+      html += `<section><h3>Отвсякъде в Windows</h3>`
+      for (const [name, k] of globals) {
+        html += `<div class="w20-sheet-row"><span>${what[name] || name}</span><span><kbd>${k.replace('Super', 'Win')}</kbd></span></div>`
+      }
+      html += `</section>`
+    }
+    html += `</div><p class="w20-sheet-note"><button class="w20-sheet-edit" data-role="edit-keys">Промени клавишите…</button> В терминал Ctrl+буква е на програмата в него (Ctrl+C спира, Ctrl+W трие дума). Станцията слуша там на Ctrl+Shift+… · Ctrl+Shift+C / Ctrl+Shift+V копира и поставя.</p></div>`
     sheet.innerHTML = html
   }
 
@@ -437,6 +653,10 @@ export function createKeymap(ctx) {
   }
   sheet.addEventListener('click', (e) => {
     if (e.target === sheet) cheatsheet.hide()
+    if (e.target.closest && e.target.closest('[data-role="edit-keys"]')) {
+      cheatsheet.hide()
+      editKeys()
+    }
   })
 
   /* ---------------------------------------------------------- handling */
@@ -464,10 +684,10 @@ export function createKeymap(ctx) {
       e.preventDefault()
       return true
     }
-    const binding = table.get(combo)
-    if (!binding) return false
+    const hit = table.get(combo)
+    if (!hit) return false
     e.preventDefault()
-    binding.run(combo)
+    hit.binding.run(combo, hit.index)
     return true
   }
 
@@ -476,5 +696,5 @@ export function createKeymap(ctx) {
     leaderPending: () => leader.pending
   }
 
-  return { handle, bindings, leader, cheatsheet, display }
+  return { handle, bindings, leader, cheatsheet, display, reload, editKeys }
 }

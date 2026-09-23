@@ -77,8 +77,8 @@ async function ask(url, apiKey, body, timeoutMs) {
   }
 }
 
-function requestBody(provider, model, messages) {
-  const body = { model, messages, temperature: 0.2, max_tokens: 1200 }
+function requestBody(provider, model, messages, extra = {}) {
+  const body = { model, messages, temperature: 0.2, max_tokens: 1200, ...extra }
   // gpt-oss thinks before it answers; for picking a command, a little is plenty.
   if (provider === 'groq' && /gpt-oss/.test(model)) body.reasoning_effort = 'low'
   return body
@@ -88,21 +88,49 @@ function requestBody(provider, model, messages) {
  * Try one service: its model, or — if that model has been retired — the one
  * the service lists now.
  */
-async function tryProvider(provider, { model, endpoint, apiKey, messages, timeoutMs }) {
+async function tryProvider(provider, { model, endpoint, apiKey, messages, timeoutMs, send = ask }) {
   const known = PROVIDERS[provider]
   const url = chatUrl(provider, endpoint)
   if (!url) return { status: 0, detail: 'няма адрес' }
   let use = model || models.remembered(provider, 'chat') || known.chatModel
-  let result = await ask(url, apiKey, requestBody(provider, use, messages), timeoutMs)
+  let result = await send(url, apiKey, use, timeoutMs)
   if (result.status !== 200 && models.modelIsGone(result.status, result.detail) && known.prefer) {
     const base = endpoint || known.baseUrl
     const next = await models.discover(provider, 'chat', base, apiKey, known.prefer)
     if (next && next !== use) {
       use = next
-      result = await ask(url, apiKey, requestBody(provider, use, messages), timeoutMs)
+      result = await send(url, apiKey, use, timeoutMs)
     }
   }
   return { ...result, model: use }
+}
+
+/**
+ * The chosen service, then — if falling back is on — every other one that is
+ * set up. Ollama costs nothing to try and answers at once when it is not
+ * there; the others only when their key is set.
+ */
+function chainFor(config, state, settings) {
+  const chain = [config.provider]
+  if (config.fallback !== false) {
+    for (const id of FALLBACK_ORDER) {
+      if (chain.includes(id)) continue
+      const p = PROVIDERS[id]
+      if (id === 'ollama' || (p.needsKey && settings.keyFor(id, state))) chain.push(id)
+    }
+  }
+  return chain
+}
+
+/** Whether the chosen service can be asked at all, in words for the user. */
+function notReady(config, state, settings) {
+  const known = PROVIDERS[config.provider]
+  if (!known) return `Непозната услуга за ИИ: ${config.provider}`
+  if (known.needsKey && !settings.keyFor(config.provider, state)) {
+    return 'Няма ключ за ИИ. Отвори Настройки — ключът за Groq или Gemini е безплатен.'
+  }
+  if (config.provider === 'custom' && !config.endpoint) return 'Няма адрес за ИИ услугата. Попълни го в Настройки.'
+  return ''
 }
 
 function explain(provider, result) {
@@ -122,14 +150,8 @@ function explain(provider, result) {
 async function navigate({ text, commands, context }, settings) {
   const state = settings.read()
   const config = state.ai
-  const known = PROVIDERS[config.provider]
-  if (!known) return { ok: false, error: `Непозната услуга за ИИ: ${config.provider}` }
-  if (known.needsKey && !settings.keyFor(config.provider, state)) {
-    return { ok: false, error: 'Няма ключ за ИИ. Отвори Настройки — ключът за Groq или Gemini е безплатен.' }
-  }
-  if (config.provider === 'custom' && !config.endpoint) {
-    return { ok: false, error: 'Няма адрес за ИИ услугата. Попълни го в Настройки.' }
-  }
+  const problem = notReady(config, state, settings)
+  if (problem) return { ok: false, error: problem }
 
   const list = (commands || [])
     .slice(0, 200)
@@ -144,17 +166,7 @@ async function navigate({ text, commands, context }, settings) {
     }
   ]
 
-  const chain = [config.provider]
-  if (config.fallback !== false) {
-    for (const id of FALLBACK_ORDER) {
-      if (chain.includes(id)) continue
-      const p = PROVIDERS[id]
-      // Ollama costs nothing to try and answers at once when it is not there;
-      // the others only when their key is set.
-      if (id === 'ollama' || (p.needsKey && settings.keyFor(id, state))) chain.push(id)
-    }
-  }
-
+  const chain = chainFor(config, state, settings)
   const failures = []
   for (const provider of chain) {
     const primary = provider === config.provider
@@ -162,8 +174,8 @@ async function navigate({ text, commands, context }, settings) {
       model: primary ? config.model : '',
       endpoint: primary ? config.endpoint : '',
       apiKey: settings.keyFor(provider, state),
-      messages,
-      timeoutMs: primary ? 20000 : 12000
+      timeoutMs: primary ? 20000 : 12000,
+      send: (url, apiKey, model, timeoutMs) => ask(url, apiKey, requestBody(provider, model, messages), timeoutMs)
     })
     if (result.status === 200) {
       if (!result.content) {
@@ -184,4 +196,141 @@ async function navigate({ text, commands, context }, settings) {
   return { ok: false, error: `ИИ не отговори. ${failures.join(' · ')}` }
 }
 
-module.exports = { navigate, parseReply, chatUrl }
+/* ------------------------------------------------------------ the chat */
+
+const CHAT_SYSTEM = `Ти си ИИ помощникът в „Windows 20 Workstation“ — работна станция на Windows с терминали, агенти за код (Claude Code, Gemini CLI, Aider) и браузър.
+Отговаряй на езика, на който ти пишат — по подразбиране на български. Бъди кратък и конкретен.
+Команди за терминала давай в блок \`\`\`, по една на ред, за PowerShell, освен ако не питат за друго — потребителят може да ги прати в терминала с един бутон.
+Не измисляй факти; ако не знаеш, кажи го.`
+
+/**
+ * One streamed request. Resolves when the reply is complete — or with the
+ * status of a refusal, before anything was streamed, so the next service can
+ * be tried.
+ */
+async function stream(url, apiKey, body, timeoutMs, onDelta, signal) {
+  const controller = new AbortController()
+  const abort = () => controller.abort()
+  if (signal) signal.addEventListener('abort', abort)
+  // Waiting for the first byte is bounded; a long answer, once it flows, is not.
+  let timer = setTimeout(abort, timeoutMs)
+  const idle = () => {
+    clearTimeout(timer)
+    timer = setTimeout(abort, 45000)
+  }
+  let text = ''
+  try {
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Accept: 'text/event-stream',
+        ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {})
+      },
+      body: JSON.stringify({ ...body, stream: true }),
+      signal: controller.signal
+    })
+    if (!response.ok) return { status: response.status, detail: (await response.text()).slice(0, 300) }
+    idle()
+
+    // A service that ignores `stream` answers with plain JSON.
+    const type = response.headers.get('content-type') || ''
+    if (!/event-stream/.test(type)) {
+      const data = await response.json()
+      const message = data && data.choices && data.choices[0] && data.choices[0].message
+      text = message && message.content ? String(message.content) : ''
+      if (text) onDelta(text)
+      return { status: 200, content: text }
+    }
+
+    const decoder = new TextDecoder()
+    let buffer = ''
+    for await (const chunk of response.body) {
+      idle()
+      buffer += decoder.decode(chunk, { stream: true })
+      let nl
+      while ((nl = buffer.indexOf('\n')) !== -1) {
+        const line = buffer.slice(0, nl).trim()
+        buffer = buffer.slice(nl + 1)
+        if (!line.startsWith('data:')) continue
+        const payload = line.slice(5).trim()
+        if (payload === '[DONE]') return { status: 200, content: text }
+        try {
+          const data = JSON.parse(payload)
+          const delta = data.choices && data.choices[0] && data.choices[0].delta
+          const piece = delta && typeof delta.content === 'string' ? delta.content : ''
+          if (piece) {
+            text += piece
+            onDelta(piece)
+          }
+        } catch {
+          // a keep-alive or a comment line
+        }
+      }
+    }
+    return { status: 200, content: text }
+  } catch (err) {
+    if (signal && signal.aborted) return { status: 200, content: text, stopped: true }
+    // Cut off half-way: what arrived is still the answer, just shorter.
+    if (text) return { status: 200, content: text, cut: true }
+    return { status: 0, detail: err.name === 'AbortError' ? `не отговори за ${Math.round(timeoutMs / 1000)} секунди` : err.message }
+  } finally {
+    clearTimeout(timer)
+    if (signal) signal.removeEventListener('abort', abort)
+  }
+}
+
+/**
+ * A conversation with the chosen service, streamed. Falls back like the
+ * navigation does, but only before the first word: once a service has started
+ * answering, switching would stitch two answers together.
+ */
+async function chat({ messages }, settings, onDelta, signal) {
+  const state = settings.read()
+  const config = state.ai
+  const problem = notReady(config, state, settings)
+  if (problem) return { ok: false, error: problem }
+
+  const history = (Array.isArray(messages) ? messages : [])
+    .filter((m) => m && (m.role === 'user' || m.role === 'assistant') && typeof m.content === 'string')
+    .slice(-24)
+    .map((m) => ({ role: m.role, content: m.content.slice(0, 16000) }))
+  if (!history.length) return { ok: false, error: 'Няма въпрос.' }
+  const full = [{ role: 'system', content: CHAT_SYSTEM }, ...history]
+
+  const failures = []
+  for (const provider of chainFor(config, state, settings)) {
+    if (signal && signal.aborted) break
+    const primary = provider === config.provider
+    const result = await tryProvider(provider, {
+      model: primary ? config.model : '',
+      endpoint: primary ? config.endpoint : '',
+      apiKey: settings.keyFor(provider, state),
+      timeoutMs: primary ? 25000 : 15000,
+      send: (url, apiKey, model, timeoutMs) =>
+        stream(url, apiKey, requestBody(provider, model, full, { temperature: 0.4, max_tokens: 4096 }), timeoutMs, onDelta, signal)
+    })
+    if (result.status === 200) {
+      if (!result.content && !result.stopped) {
+        failures.push(`${provider}: празен отговор`)
+        continue
+      }
+      // The whole text as well: the pieces travel as separate messages and
+      // the last of them can arrive after this reply does.
+      return {
+        ok: true,
+        content: result.content || '',
+        provider,
+        model: result.model,
+        fellBack: !primary,
+        stopped: Boolean(result.stopped),
+        cut: Boolean(result.cut)
+      }
+    }
+    failures.push(explain(provider, result))
+  }
+  if (signal && signal.aborted) return { ok: true, stopped: true }
+  return { ok: false, error: `ИИ не отговори. ${failures.join(' · ')}` }
+}
+
+module.exports = { navigate, chat, parseReply, chatUrl }

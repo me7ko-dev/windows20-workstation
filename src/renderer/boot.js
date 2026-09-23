@@ -6,12 +6,15 @@ import { createMinimap } from './minimap.js'
 import { createSpeaker } from './speaker.js'
 import { createOverview } from './overview.js'
 import { createKeymap } from './keymap.js'
+import { loadTheme } from './theme.js'
 
 async function boot() {
   const viewport = document.getElementById('viewport')
   const plane = document.getElementById('plane')
   const root = document.getElementById('shell')
 
+  // Before anything is drawn, so a light station never flashes dark.
+  await loadTheme()
   const info = await window.w20.programs()
   const home = await window.w20.home()
   const station = await window.w20.station.info()
@@ -91,6 +94,18 @@ async function boot() {
     if (overview.open) return
     keymap.handle(e)
   })
+  bar.onEditKeys(() => keymap.editKeys())
+  document.addEventListener('w20:edit-keys', () => keymap.editKeys())
+  // The user's own keys from keybindings.json, over the defaults.
+  keymap.reload()
+
+  // The keys that work from anywhere in Windows: the station is in front by
+  // now, and "voice" wants it listening too.
+  if (window.w20.ui) {
+    window.w20.ui.onGlobal((what) => {
+      if (what === 'voice') bar.toggleVoice()
+    })
+  }
 
   document.body.classList.remove('is-booting')
 }
@@ -124,10 +139,10 @@ function buildEmpty(root, programs, desktop, overview) {
     ...['claude', 'gemini', 'codex', 'aider', 'opencode', 'qwen']
       .map(byId)
       .filter(Boolean)
-      .slice(0, 3)
+      .slice(0, 2)
       .map((p) => ({ icon: p.icon, label: p.title, accent: p.accent, run: () => desktop.openProgram(p) })),
+    { icon: '✦', label: 'ИИ чат', key: 'Ctrl+Shift+I', accent: '#c4b5fd', run: () => desktop.openChat() },
     { icon: '◎', label: 'Браузър', key: 'Ctrl+Space B', accent: '#4caf50', run: () => desktop.openWeb() },
-    { icon: '▤', label: 'Файлове', key: 'Ctrl+Space F', accent: '#ffd166', run: () => desktop.openFiles() },
     { icon: '✎', label: 'Бележка', key: 'Ctrl+N', accent: '#ffd166', run: () => desktop.openNote() },
     { icon: '▦', label: 'Всички станции', key: 'F3', accent: '#c4b5fd', run: () => overview.show() },
     { icon: '⚙', label: 'Глас и ИИ', key: 'безплатно', accent: '#9aa2b1', run: () => desktop.openSettings() }

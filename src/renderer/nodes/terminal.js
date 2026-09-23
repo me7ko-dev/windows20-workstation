@@ -5,6 +5,7 @@
  */
 
 import { isStationKey } from '../keymap.js'
+import { terminalTheme, onTheme } from '../theme.js'
 
 const { Terminal } = window
 const { FitAddon } = window.FitAddon || {}
@@ -22,12 +23,10 @@ export function mountTerminal(win, { cwd, shell, args, onExit }) {
     // 2000 lines a busy agent costs a few MB, so a canvas full of them stays
     // in the hundreds of MB rather than eating the machine.
     scrollback: 2000,
-    theme: {
-      background: 'rgba(0,0,0,0)',
-      foreground: '#e6eaf2',
-      cursor: '#5ee0ff',
-      selectionBackground: 'rgba(94,224,255,0.25)'
-    }
+    theme: terminalTheme()
+  })
+  const offTheme = onTheme((mode) => {
+    term.options.theme = terminalTheme(mode)
   })
 
   // The station's keys pass through; everything else is the program's. Plus
@@ -125,6 +124,7 @@ export function mountTerminal(win, { cwd, shell, args, onExit }) {
       alive = false
       offData()
       offExit()
+      offTheme()
       observer.disconnect()
       window.w20.term.kill(id)
       term.dispose()

@@ -31,6 +31,23 @@ const page = http.createServer((_req, res) => {
   </div></body></html>`)
 })
 
+// A chat service on localhost that answers the way a model does — in pieces.
+const AI_PORT = 8140
+const ANSWER = [
+  'Порт 3000 държи процесът с този PID. Виж кой е и го спри:\n\n',
+  '```powershell\nGet-NetTCPConnection -LocalPort 3000 | Select-Object OwningProcess\n',
+  'Stop-Process -Id (Get-NetTCPConnection -LocalPort 3000).OwningProcess\n```\n\n',
+  'Ако е `node` от друг проект — по-добре го спри от неговия терминал с `Ctrl+C`.'
+]
+const ai = http.createServer((req, res) => {
+  req.resume()
+  req.on('end', () => {
+    res.writeHead(200, { 'Content-Type': 'text/event-stream; charset=utf-8' })
+    for (const piece of ANSWER) res.write(`data: ${JSON.stringify({ choices: [{ delta: { content: piece } }] })}\n\n`)
+    res.end('data: [DONE]\n\n')
+  })
+})
+
 /* ------------------------------------------------ what the terminals say */
 
 const E = '\x1b['
@@ -118,6 +135,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 
 async function main() {
   await new Promise((r) => page.listen(PAGE_PORT, '127.0.0.1', r))
+  await new Promise((r) => ai.listen(AI_PORT, '127.0.0.1', r))
   await app.whenReady()
   await sleep(2500)
   const win = BrowserWindow.getAllWindows()[0]
@@ -235,8 +253,33 @@ async function main() {
   await sleep(1200)
   await shot('07-settings')
 
+  // Station 05: a terminal and the chat, answered in Bulgarian with a command.
+  await run(`await window.w20.settings.set({ ai: { provider: 'custom', endpoint: 'http://127.0.0.1:${AI_PORT}/v1', model: 'gpt-oss-120b' } }); return true`)
+  await key('Digit5', { ctrl: true })
+  await waitPicture()
+  await open(await dockIndex('PowerShell'))
+  await sleep(300)
+  await key('KeyI', { ctrl: true, shift: true })
+  await sleep(400)
+  await run(`
+    const box = document.querySelector('.w20-chat textarea')
+    box.value = 'Кой процес държи порт 3000?'
+    box.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }))
+    return true`)
+  await sleep(1500)
+  await shot('08-chat')
+
+  // The same four fields of station 01, in the light theme.
+  await key('Digit1', { ctrl: true })
+  await sleep(300)
+  await key('KeyL', { ctrl: true, alt: true })
+  await waitPicture()
+  await shot('09-light')
+  await key('KeyL', { ctrl: true, alt: true })
+
   if (errors.length) console.log('грешки в конзолата:\n  ' + errors.join('\n  '))
   page.close()
+  ai.close()
   app.exit(0)
 }
 

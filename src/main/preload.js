@@ -54,7 +54,16 @@ contextBridge.exposeInMainWorld('w20', {
   ai: {
     // The commands go out as ids and labels; only an id comes back, and the
     // renderer checks it against its own list before running anything.
-    navigate: (request) => ipcRenderer.invoke('ai:navigate', request)
+    navigate: (request) => ipcRenderer.invoke('ai:navigate', request),
+    // A conversation. The reply streams back in pieces tagged with the
+    // request id; the key stays in the main process like everywhere else.
+    chat: (request) => ipcRenderer.invoke('ai:chat', request),
+    stop: (requestId) => ipcRenderer.send('ai:stop', requestId),
+    onDelta: (handler) => {
+      const listener = (_e, payload) => handler(payload)
+      ipcRenderer.on('ai:delta', listener)
+      return () => ipcRenderer.removeListener('ai:delta', listener)
+    }
   },
 
   speech: {
@@ -62,6 +71,34 @@ contextBridge.exposeInMainWorld('w20', {
   },
 
   providers: () => ipcRenderer.invoke('providers:list'),
+
+  ui: {
+    /** The title bar's Windows buttons are drawn by Windows; tell it the colours. */
+    theme: (mode) => ipcRenderer.send('ui:theme', mode),
+    onTheme: (handler) => {
+      const listener = (_e, mode) => handler(mode)
+      ipcRenderer.on('ui:theme', listener)
+      return () => ipcRenderer.removeListener('ui:theme', listener)
+    },
+    /** From the global keys: Windows asked this station to listen. */
+    onGlobal: (handler) => {
+      const listener = (_e, what) => handler(what)
+      ipcRenderer.on('ui:global', listener)
+      return () => ipcRenderer.removeListener('ui:global', listener)
+    }
+  },
+
+  keys: {
+    /** The user's own keys from keybindings.json: { id: [combo…] }. */
+    load: () => ipcRenderer.invoke('keys:load'),
+    /** Opens keybindings.json in the system editor, writing it first if missing. */
+    open: (defaults) => ipcRenderer.invoke('keys:open', defaults),
+    onChange: (handler) => {
+      const listener = (_e, payload) => handler(payload)
+      ipcRenderer.on('keys:changed', listener)
+      return () => ipcRenderer.removeListener('keys:changed', listener)
+    }
+  },
 
   settings: {
     get: () => ipcRenderer.invoke('settings:get'),
