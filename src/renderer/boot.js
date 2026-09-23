@@ -141,7 +141,7 @@ function buildEmpty(root, programs, desktop, overview) {
       .filter(Boolean)
       .slice(0, 2)
       .map((p) => ({ icon: p.icon, label: p.title, accent: p.accent, run: () => desktop.openProgram(p) })),
-    { icon: '✦', label: 'ИИ чат', key: 'Ctrl+Shift+I', accent: '#c4b5fd', run: () => desktop.openChat() },
+    { icon: '✺', label: 'Genesis чат', key: 'Ctrl+Shift+I', accent: '#c4b5fd', run: () => desktop.openChat() },
     { icon: '◎', label: 'Браузър', key: 'Ctrl+Space B', accent: '#4caf50', run: () => desktop.openWeb() },
     { icon: '✎', label: 'Бележка', key: 'Ctrl+N', accent: '#ffd166', run: () => desktop.openNote() },
     { icon: '▦', label: 'Всички станции', key: 'F3', accent: '#c4b5fd', run: () => overview.show() },

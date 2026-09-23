@@ -335,7 +335,7 @@ export function createKeymap(ctx) {
       group: 'Лента, глас, ИИ',
       id: 'ai.chat',
       keys: ['Ctrl+Shift+KeyI'],
-      label: 'ИИ чат — прозорец за разговор',
+      label: 'Genesis — ИИ чат',
       run: () => desktop.openChat()
     },
     {
@@ -519,7 +519,7 @@ export function createKeymap(ctx) {
     ['KeyF', 'файлове', () => desktop.openFiles()],
     ['KeyN', 'бележка', () => desktop.openNote()],
     ['KeyA', 'питай ИИ', () => bar.focus('')],
-    ['KeyI', 'ИИ чат', () => desktop.openChat()],
+    ['KeyI', 'Genesis чат', () => desktop.openChat()],
     ['KeyD', 'светла / тъмна', () => say(toggleTheme() === 'light' ? 'Светла тема' : 'Тъмна тема')],
     ['KeyV', 'говори', () => bar.toggleVoice()],
     ['KeyC', 'Claude Code', () => openProgram('claude')],

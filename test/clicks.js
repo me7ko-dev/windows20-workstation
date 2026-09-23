@@ -86,6 +86,24 @@ const aiServer = http.createServer((req, res) => {
   })
 })
 
+// Genesis, the way its product_api answers: one JSON reply, no streaming.
+const GENESIS_PORT = 8141
+const genesisRequests = []
+const genesisServer = http.createServer((req, res) => {
+  const chunks = []
+  req.on('data', (c) => chunks.push(c))
+  req.on('end', () => {
+    if (req.url === '/health') {
+      res.writeHead(200, { 'Content-Type': 'application/json' })
+      res.end('{"status":"online"}')
+      return
+    }
+    genesisRequests.push(Buffer.concat(chunks).toString('utf8'))
+    res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' })
+    res.end(JSON.stringify({ model: 'qwen-genesis', choices: [{ message: { role: 'assistant', content: 'Аз съм Genesis. ```bash\nls -la\n```' } }] }))
+  })
+})
+
 /* -------------------------------------------------- the machine's edges */
 
 const spawned = []
@@ -253,6 +271,7 @@ async function drain(label) {
 async function main() {
   await new Promise((r) => pageServer.listen(PAGE_PORT, '127.0.0.1', r))
   await new Promise((r) => aiServer.listen(AI_PORT, '127.0.0.1', r))
+  await new Promise((r) => genesisServer.listen(GENESIS_PORT, '127.0.0.1', r))
   await app.whenReady()
   await sleep(2600)
 
@@ -813,6 +832,9 @@ async function main() {
   /* ========================================================== the chat */
 
   console.log('\n— ИИ чат —')
+  // Genesis is not running and may not start itself: the chat says so and the
+  // navigation service answers instead.
+  await run(`await window.w20.settings.set({ chat: { provider: 'genesis', genesisUrl: 'http://127.0.0.1:8199', autostart: false } }); return true`)
   await run(`window.__t.clear(); return true`)
   await sleep(400)
   await run(`window.__t.key('t'); return true`)
@@ -842,6 +864,23 @@ async function main() {
   const typed = spawned[spawned.length - 1].writes.slice(before).join('')
   expect('„В терминала“ написва командата, без Enter', typed.includes('Get-Process') && !/[\r\n]$/.test(typed), JSON.stringify(typed))
   expect('HTML в отговора остава текст', await run(`return !document.querySelector('.w20-chat-log script, .w20-chat-log img')`))
+  const fallbackFoot = await run(`return [...document.querySelectorAll('.w20-chat-foot span')].pop().textContent`)
+  expect('без Genesis отговаря резервната услуга и казва защо', /резервна/.test(fallbackFoot) && /Genesis не е пуснат/.test(fallbackFoot), fallbackFoot)
+
+  // Now Genesis is there: it answers, with its own system prompt, not ours.
+  await run(`await window.w20.settings.set({ chat: { provider: 'genesis', genesisUrl: 'http://127.0.0.1:${GENESIS_PORT}' } }); return true`)
+  await run(`
+    const box = document.querySelector('.w20-chat textarea')
+    box.value = 'кой си ти'
+    box.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }))
+    return true`)
+  await sleep(900)
+  const ownFoot = await run(`return [...document.querySelectorAll('.w20-chat-foot span')].pop().textContent`)
+  const ownText = await run(`return document.querySelector('.w20-chat-log').innerText`)
+  expect('ИИ чатът е Genesis', ownFoot.startsWith('genesis') && ownText.includes('Аз съм Genesis'), ownFoot)
+  const sentToGenesis = genesisRequests.pop() || ''
+  expect('на Genesis не се праща чужд system prompt', !sentToGenesis.includes('"role":"system"') && sentToGenesis.includes('кой си ти'))
+  expect('прозорецът се казва Genesis', (await run(`return document.querySelector('.w20-window--chat .w20-window-title').textContent`)).includes('Genesis'))
   did('чат: отваряне, стрийминг, код към терминала')
   await drain('чатът')
 
@@ -927,6 +966,7 @@ async function main() {
   }
   pageServer.close()
   aiServer.close()
+  genesisServer.close()
   app.exit(seen.length + failures.length ? 1 : 0)
 }
 

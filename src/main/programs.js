@@ -31,6 +31,20 @@ const PROGRAMS_X86 = process.env['ProgramFiles(x86)'] || 'C:\\Program Files (x86
 
 const CATALOG = [
   {
+    id: 'genesis',
+    title: 'Genesis',
+    icon: '✺',
+    kind: 'agent',
+    command: 'genesis',
+    accent: '#c4b5fd',
+    candidates: [
+      path.join(HOME, '.local', 'bin', 'genesis.exe'),
+      path.join(HOME, '.venvs', 'genesis', 'Scripts', 'genesis.exe'),
+      path.join(HOME, 'pipx', 'venvs', 'genesis-agent', 'Scripts', 'genesis.exe')
+    ],
+    description: 'Genesis — твоят агент: терминал, умения, памет между сесиите. Той е и мозъкът на ИИ чата.'
+  },
+  {
     id: 'claude',
     title: 'Claude Code',
     icon: '✦',

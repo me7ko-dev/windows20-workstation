@@ -42,7 +42,7 @@ const ICONS = {
   note: '✎',
   settings: '⚙',
   launcher: '↗',
-  chat: '✦'
+  chat: '✺'
 }
 
 const DEFAULT_SIZES = {
@@ -974,7 +974,7 @@ export function createDesktop({ plane, canvas, programs, home, speaker, insets, 
       if (question && entry.content.ask) entry.content.ask(question)
       return entry
     }
-    const made = addNode({ type: 'chat', title: 'ИИ чат', messages: [], accent: '#c4b5fd' })
+    const made = addNode({ type: 'chat', title: 'Genesis', messages: [], accent: '#c4b5fd' })
     if (made && question && made.content && made.content.ask) made.content.ask(question)
     return made
   }

@@ -14,6 +14,7 @@ const ai = require('./ai')
 const speech = require('./speech')
 const { catalog: providerCatalog } = require('./providers')
 const { createKeybindings } = require('./keybindings')
+const genesis = require('./genesis')
 
 let store = null
 let settings = null
@@ -173,6 +174,7 @@ app.on('window-all-closed', () => {
 })
 
 app.on('will-quit', () => {
+  genesis.stop()
   globalShortcut.unregisterAll()
   if (keybindings) keybindings.unwatch()
 })
@@ -504,13 +506,22 @@ ipcMain.handle('ai:chat', async (e, request) => {
   chats.set(requestId, controller)
   const sender = e.sender
   try {
+    // Genesis is the chat's brain unless Settings say otherwise; started here
+    // if it is not running yet, with the same free keys the agents get.
+    const chatConfig = settings.read().chat
+    let own = null
+    if (chatConfig.provider === 'genesis') {
+      if (!sender.isDestroyed()) sender.send('ai:delta', { requestId, status: 'genesis' })
+      own = await genesis.ensure({ url: chatConfig.genesisUrl, autostart: chatConfig.autostart !== false, env: agentEnv(settings) })
+    }
     return await ai.chat(
       request || {},
       settings,
       (delta) => {
         if (!sender.isDestroyed()) sender.send('ai:delta', { requestId, delta })
       },
-      controller.signal
+      controller.signal,
+      { genesis: own }
     )
   } finally {
     chats.delete(requestId)

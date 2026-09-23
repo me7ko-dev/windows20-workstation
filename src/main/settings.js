@@ -36,6 +36,12 @@ function createSettings(userDataDir) {
       // When the chosen service is out of free requests, try the others.
       fallback: true
     },
+    // The chat window: Genesis, or the same service as the navigation.
+    chat: {
+      provider: 'genesis', // genesis | ai
+      genesisUrl: 'http://127.0.0.1:8100',
+      autostart: true
+    },
     // Speaking back.
     speech: {
       engine: 'system', // system | azure | off
@@ -51,7 +57,7 @@ function createSettings(userDataDir) {
     keys: {}
   }
 
-  const SECTIONS = ['stt', 'ai', 'speech', 'look', 'keys']
+  const SECTIONS = ['stt', 'ai', 'chat', 'speech', 'look', 'keys']
 
   function read() {
     let parsed = {}
@@ -119,6 +125,7 @@ function createSettings(userDataDir) {
         hasKey: hasKey[state.ai.provider] || false,
         ready: ready(state.ai.provider, state) && (state.ai.provider !== 'custom' || Boolean(state.ai.endpoint))
       },
+      chat: { ...state.chat },
       speech: { ...state.speech },
       look: { ...state.look },
       hasKey

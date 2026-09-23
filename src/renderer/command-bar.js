@@ -164,9 +164,9 @@ export function createCommandBar({ root, desktop, programs, canvas, toast, minim
       },
       {
         id: 'ai:chat',
-        label: 'ИИ чат',
+        label: 'Genesis — ИИ чат',
         hint: 'Ctrl+Shift+I — разговор, отговорът идва докато се пише',
-        keywords: ['чат', 'chat', 'ии', 'ai', 'разговор', 'питай', 'помощник', 'грок', 'grok', 'gemini'],
+        keywords: ['genesis', 'генезис', 'чат', 'chat', 'ии', 'ai', 'разговор', 'питай', 'помощник', 'грок', 'grok', 'gemini'],
         run: () => desktop.openChat()
       },
       {
@@ -441,7 +441,7 @@ export function createCommandBar({ root, desktop, programs, canvas, toast, minim
       query.length >= 2
         ? [
             { id: 'ai:ask', label: 'Попитай ИИ', hint: `„${query}“`, run: () => askAI(query, { spoken: false }) },
-            { id: 'ai:chat-ask', label: 'Питай в ИИ чата', hint: 'дълъг отговор, с код', run: () => desktop.openChat(query) }
+            { id: 'ai:chat-ask', label: 'Питай Genesis', hint: 'в ИИ чата — дълъг отговор, с код', run: () => desktop.openChat(query) }
           ]
         : []
 

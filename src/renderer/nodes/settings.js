@@ -65,6 +65,23 @@ export function mountSettings(win, { speaker, onSaved, openWeb } = {}) {
       <span>Свърши ли безплатният лимит — пробвай другите услуги с ключ и Ollama</span>
     </label>
 
+    <h3 class="w20-settings-section">ИИ чат — Genesis</h3>
+    <label class="w20-field">
+      <span>Кой отговаря в чата</span>
+      <select data-role="chat-provider">
+        <option value="genesis">Genesis — твоят агент</option>
+        <option value="ai">Същата услуга като навигацията</option>
+      </select>
+    </label>
+    <label class="w20-field" data-role="chat-url-row">
+      <span>Адрес на Genesis</span>
+      <input type="text" data-role="chat-url" placeholder="http://127.0.0.1:8100" spellcheck="false" />
+    </label>
+    <label class="w20-check" data-role="chat-auto-row">
+      <input type="checkbox" data-role="chat-autostart" />
+      <span>Пусни Genesis сам, ако не работи (само на 127.0.0.1)</span>
+    </label>
+
     <h3 class="w20-settings-section">Говорене — отговорът на глас</h3>
     <label class="w20-field">
       <span>Глас</span>
@@ -153,6 +170,12 @@ export function mountSettings(win, { speaker, onSaved, openWeb } = {}) {
     link.dataset.url = entry.keyUrl || ''
   }
 
+  function syncChat() {
+    const own = $('chat-provider').value === 'genesis'
+    $('chat-url-row').hidden = !own
+    $('chat-auto-row').hidden = !own
+  }
+
   function syncSpeech() {
     const engine = $('speech-engine').value
     $('speech-voice-row').hidden = engine !== 'system'
@@ -202,6 +225,10 @@ export function mountSettings(win, { speaker, onSaved, openWeb } = {}) {
     $('ai-model').value = state.ai.model
     $('ai-endpoint').value = state.ai.endpoint
     $('ai-fallback').checked = state.ai.fallback !== false
+    $('chat-provider').value = (state.chat && state.chat.provider) || 'genesis'
+    $('chat-url').value = (state.chat && state.chat.genesisUrl) || ''
+    $('chat-autostart').checked = !state.chat || state.chat.autostart !== false
+    syncChat()
     $('speech-engine').value = state.speech.engine
     $('speech-rate').value = String(state.speech.rate || 1)
     $('azure-region').value = state.speech.azureRegion
@@ -221,6 +248,7 @@ export function mountSettings(win, { speaker, onSaved, openWeb } = {}) {
   $('stt-provider').addEventListener('change', () => syncSection('stt', catalog.stt))
   $('ai-provider').addEventListener('change', () => syncSection('ai', catalog.chat))
   $('speech-engine').addEventListener('change', syncSpeech)
+  $('chat-provider').addEventListener('change', syncChat)
   $('speech-rate').addEventListener('input', syncSpeech)
 
   for (const prefix of ['stt', 'ai']) {
@@ -245,6 +273,11 @@ export function mountSettings(win, { speaker, onSaved, openWeb } = {}) {
         model: $('ai-model').value.trim(),
         endpoint: $('ai-endpoint').value.trim(),
         fallback: $('ai-fallback').checked
+      },
+      chat: {
+        provider: $('chat-provider').value,
+        genesisUrl: $('chat-url').value.trim() || 'http://127.0.0.1:8100',
+        autostart: $('chat-autostart').checked
       },
       speech: {
         engine: $('speech-engine').value,

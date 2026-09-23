@@ -1,9 +1,10 @@
 /**
  * A conversation with the AI, as a window on the canvas.
  *
- * It talks to the same service as the voice — Groq, Gemini, OpenRouter, Grok
- * or Ollama, with the same fallback — and the reply streams in as it is
- * written. A command in a ``` block gets two buttons: copy it, or type it
+ * Its brain is Genesis — the user's own agent, through its OpenAI-compatible
+ * API on this machine — and when Genesis is not there, the same service as
+ * the voice (Groq, Gemini, OpenRouter, Grok or Ollama) with the same
+ * fallback. A reply streams in as it is written. A command in a ``` block gets two buttons: copy it, or type it
  * into the terminal last used. Typed, never run: Enter stays the user's.
  *
  * Everything is put on the page as text, never as HTML, so an answer cannot
@@ -132,7 +133,7 @@ export function mountChat(win, { messages = [], onChange, speaker, sendToTermina
   function empty() {
     const el = document.createElement('div')
     el.className = 'w20-chat-empty'
-    el.innerHTML = `<b>✦</b><p>Питай каквото искаш — на български.</p>`
+    el.innerHTML = `<b>✺</b><p><strong>Genesis</strong> — твоят агент. Питай каквото искаш, на български.</p>`
     const tips = ['Как да видя кой процес държи порт 3000?', 'Обясни ми какво прави git rebase', 'Напиши PowerShell скрипт, който чисти temp']
     for (const tip of tips) {
       const b = document.createElement('button')
@@ -209,7 +210,7 @@ export function mountChat(win, { messages = [], onChange, speaker, sendToTermina
       return
     }
     const name = result.provider ? `${result.provider}${result.model ? ` · ${result.model}` : ''}` : ''
-    answer.via = [name, result.fellBack ? 'резервна услуга' : '', result.stopped ? 'спрян' : '', result.cut ? 'прекъснат' : '']
+    answer.via = [name, result.fellBack ? 'резервна услуга' : '', result.note || '', result.stopped ? 'спрян' : '', result.cut ? 'прекъснат' : '']
       .filter(Boolean)
       .join(' · ')
     history.push(answer)
@@ -219,8 +220,13 @@ export function mountChat(win, { messages = [], onChange, speaker, sendToTermina
     save()
   }
 
-  const offDelta = window.w20.ai.onDelta(({ requestId, delta }) => {
+  const offDelta = window.w20.ai.onDelta(({ requestId, delta, status }) => {
     if (!busy || busy.requestId !== requestId) return
+    if (!delta) {
+      // Before the first word: say who is thinking.
+      if (status === 'genesis' && !busy.answer.content) busy.view.body.textContent = 'Genesis мисли…'
+      return
+    }
     const stick = nearBottom()
     busy.answer.content += delta
     render(busy.view.body, busy.answer.content)

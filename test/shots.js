@@ -42,6 +42,12 @@ const ANSWER = [
 const ai = http.createServer((req, res) => {
   req.resume()
   req.on('end', () => {
+    // It stands in for Genesis too, which is asked whether it is up first.
+    if (req.url === '/health') {
+      res.writeHead(200, { 'Content-Type': 'application/json' })
+      res.end('{"status":"online"}')
+      return
+    }
     res.writeHead(200, { 'Content-Type': 'text/event-stream; charset=utf-8' })
     for (const piece of ANSWER) res.write(`data: ${JSON.stringify({ choices: [{ delta: { content: piece } }] })}\n\n`)
     res.end('data: [DONE]\n\n')
@@ -254,7 +260,7 @@ async function main() {
   await shot('07-settings')
 
   // Station 05: a terminal and the chat, answered in Bulgarian with a command.
-  await run(`await window.w20.settings.set({ ai: { provider: 'custom', endpoint: 'http://127.0.0.1:${AI_PORT}/v1', model: 'gpt-oss-120b' } }); return true`)
+  await run(`await window.w20.settings.set({ ai: { provider: 'custom', endpoint: 'http://127.0.0.1:${AI_PORT}/v1', model: 'gpt-oss-120b' }, chat: { provider: 'genesis', genesisUrl: 'http://127.0.0.1:${AI_PORT}' } }); return true`)
   await key('Digit5', { ctrl: true })
   await waitPicture()
   await open(await dockIndex('PowerShell'))

@@ -102,7 +102,7 @@ async function tryProvider(provider, { model, endpoint, apiKey, messages, timeou
       result = await send(url, apiKey, use, timeoutMs)
     }
   }
-  return { ...result, model: use }
+  return { ...result, model: result.served || use }
 }
 
 /**
@@ -240,7 +240,8 @@ async function stream(url, apiKey, body, timeoutMs, onDelta, signal) {
       const message = data && data.choices && data.choices[0] && data.choices[0].message
       text = message && message.content ? String(message.content) : ''
       if (text) onDelta(text)
-      return { status: 200, content: text }
+      // Genesis names the model its Brain picked; worth showing.
+      return { status: 200, content: text, served: data && typeof data.model === 'string' ? data.model : '' }
     }
 
     const decoder = new TextDecoder()
@@ -285,11 +286,17 @@ async function stream(url, apiKey, body, timeoutMs, onDelta, signal) {
  * navigation does, but only before the first word: once a service has started
  * answering, switching would stitch two answers together.
  */
-async function chat({ messages }, settings, onDelta, signal) {
+async function chat({ messages }, settings, onDelta, signal, { genesis = null } = {}) {
   const state = settings.read()
   const config = state.ai
+  // Genesis first when it is the chat's brain and answering; the navigation
+  // service and its fallbacks after it, unless falling back is off.
+  const useGenesis = Boolean(genesis)
   const problem = notReady(config, state, settings)
-  if (problem) return { ok: false, error: problem }
+  if (!useGenesis && problem) return { ok: false, error: problem }
+  if (useGenesis && !genesis.ok && (problem || config.fallback === false)) {
+    return { ok: false, error: `${genesis.error}${problem ? ` Резервната услуга също не е готова: ${problem}` : ''}` }
+  }
 
   const history = (Array.isArray(messages) ? messages : [])
     .filter((m) => m && (m.role === 'user' || m.role === 'assistant') && typeof m.content === 'string')
@@ -299,16 +306,31 @@ async function chat({ messages }, settings, onDelta, signal) {
   const full = [{ role: 'system', content: CHAT_SYSTEM }, ...history]
 
   const failures = []
-  for (const provider of chainFor(config, state, settings)) {
+  let chain = []
+  if (useGenesis && genesis.ok) chain.push('genesis')
+  else if (useGenesis) failures.push(genesis.error)
+  if (!problem && (!useGenesis || config.fallback !== false)) chain = chain.concat(chainFor(config, state, settings))
+  const first = chain[0]
+  for (const provider of chain) {
     if (signal && signal.aborted) break
-    const primary = provider === config.provider
+    const primary = provider === first
+    const own = provider === 'genesis'
     const result = await tryProvider(provider, {
-      model: primary ? config.model : '',
-      endpoint: primary ? config.endpoint : '',
-      apiKey: settings.keyFor(provider, state),
-      timeoutMs: primary ? 25000 : 15000,
+      model: own ? 'genesis-agent' : provider === config.provider ? config.model : '',
+      endpoint: own ? `${String(state.chat.genesisUrl || '').replace(/\/+$/, '').replace(/\/v1$/, '')}/v1` : provider === config.provider ? config.endpoint : '',
+      apiKey: own ? '' : settings.keyFor(provider, state),
+      // Genesis thinks with its whole Brain — routing, fallbacks — so it gets longer.
+      timeoutMs: own ? 180000 : primary ? 25000 : 15000,
       send: (url, apiKey, model, timeoutMs) =>
-        stream(url, apiKey, requestBody(provider, model, full, { temperature: 0.4, max_tokens: 4096 }), timeoutMs, onDelta, signal)
+        stream(
+          url,
+          apiKey,
+          // Genesis has its own voice and its own system prompt; ours would be a second one.
+          requestBody(provider, model, own ? history : full, { temperature: 0.4, max_tokens: 4096 }),
+          timeoutMs,
+          onDelta,
+          signal
+        )
     })
     if (result.status === 200) {
       if (!result.content && !result.stopped) {
@@ -322,7 +344,8 @@ async function chat({ messages }, settings, onDelta, signal) {
         content: result.content || '',
         provider,
         model: result.model,
-        fellBack: !primary,
+        fellBack: !primary || (useGenesis && !own),
+        note: useGenesis && !own ? failures[0] || '' : '',
         stopped: Boolean(result.stopped),
         cut: Boolean(result.cut)
       }

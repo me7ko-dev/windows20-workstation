@@ -57,6 +57,15 @@ const PROVIDERS = {
     needsKey: false,
     keyUrl: 'https://ollama.com/download'
   },
+  // The user's own agent. Its API speaks the OpenAI format; its keys and its
+  // choice of model are its own business, in ~/.genesis/.env.
+  genesis: {
+    title: 'Genesis — твоят агент, на този компютър',
+    baseUrl: 'http://127.0.0.1:8100/v1',
+    chatModel: 'genesis-agent',
+    needsKey: false,
+    keyUrl: 'https://github.com/me7ko-dev/genesis-agent'
+  },
   whisper: {
     title: 'Whisper на този компютър — без ключ, без интернет',
     // speaches (faster-whisper-server) on its default port. Any other

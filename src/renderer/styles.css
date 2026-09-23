@@ -2056,3 +2056,8 @@ body.is-fields .w20-dock-item {
 :root[data-theme='light'] .w20-note {
   background: rgba(255, 209, 102, 0.14);
 }
+
+.w20-check[hidden],
+.w20-field[hidden] {
+  display: none;
+}
