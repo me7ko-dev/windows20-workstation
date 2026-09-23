@@ -925,7 +925,23 @@ export function createDesktop({ plane, canvas, programs, home, speaker, insets, 
     return addNode({ type: 'web', title: program.title, programId: program.id, accent: program.accent })
   }
 
+  /**
+   * Genesis installed or upgraded from the branch with the upgrade, in a
+   * terminal on the canvas, so every line pip and pipx print is seen.
+   */
+  async function installGenesis() {
+    const command = await window.w20.genesis.install()
+    return openTerminal({
+      title: `Genesis — инсталация (${command.ref})`,
+      shell: command.shell,
+      args: command.args,
+      accent: '#c4b5fd'
+    })
+  }
+
   function openProgram(program, { cwd } = {}) {
+    // Not there yet: the button installs it instead of failing to start it.
+    if (program.id === 'genesis' && !program.installed) return installGenesis()
     if (program.kind === 'web') return openWeb()
     if (program.kind === 'files') return openFiles(cwd || activeWorkspace().cwd)
     if (program.kind === 'editor') return openEditor(program)
@@ -1171,6 +1187,7 @@ export function createDesktop({ plane, canvas, programs, home, speaker, insets, 
     openNote,
     openSettings,
     openChat,
+    installGenesis,
     closeNode,
     closeFocused,
     focusedNode,

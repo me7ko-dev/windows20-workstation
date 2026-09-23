@@ -40,6 +40,9 @@ function createSettings(userDataDir) {
     chat: {
       provider: 'genesis', // genesis | ai
       genesisUrl: 'http://127.0.0.1:8100',
+      // The branch "Инсталирай / обнови Genesis" installs from.
+      genesisRef: 'claude/token-upgrade-ipe4yg',
+      // Start Genesis with the station, as its own process.
       autostart: true
     },
     // Speaking back.

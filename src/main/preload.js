@@ -72,6 +72,13 @@ contextBridge.exposeInMainWorld('w20', {
 
   providers: () => ipcRenderer.invoke('providers:list'),
 
+  genesis: {
+    status: () => ipcRenderer.invoke('genesis:status'),
+    /** { shell, args, ref } — the renderer opens it in a terminal window. */
+    install: () => ipcRenderer.invoke('genesis:install'),
+    window: () => ipcRenderer.invoke('genesis:window')
+  },
+
   ui: {
     /** The title bar's Windows buttons are drawn by Windows; tell it the colours. */
     theme: (mode) => ipcRenderer.send('ui:theme', mode),

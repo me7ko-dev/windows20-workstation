@@ -147,6 +147,12 @@ app.whenReady().then(() => {
   keybindings = createKeybindings(app.getPath('userData'))
   applyTheme(settings.read().look.theme)
   registerGlobal()
+  // Genesis starts with the station, as its own process, so the chat finds it
+  // already awake. Not waited for: the station does not need it to open.
+  const chatConfig = settings.read().chat
+  if (chatConfig.provider === 'genesis' && chatConfig.autostart !== false) {
+    genesis.ensure({ url: chatConfig.genesisUrl, autostart: true, env: agentEnv(settings) }).catch(() => {})
+  }
   // Edited keybindings.json: every station takes the new keys, and so do the
   // global ones, without a restart.
   keybindings.watch(() => {
@@ -174,7 +180,7 @@ app.on('window-all-closed', () => {
 })
 
 app.on('will-quit', () => {
-  genesis.stop()
+  // Genesis is not stopped here: it is its own process and outlives the station.
   globalShortcut.unregisterAll()
   if (keybindings) keybindings.unwatch()
 })
@@ -531,6 +537,32 @@ ipcMain.handle('ai:chat', async (e, request) => {
 ipcMain.on('ai:stop', (_e, requestId) => {
   const controller = chats.get(String(requestId))
   if (controller) controller.abort()
+})
+
+/* --------------------------------------------------------------- Genesis */
+
+ipcMain.handle('genesis:status', async () => {
+  const chatConfig = settings ? settings.read().chat : {}
+  return { ...(await genesis.status(chatConfig.genesisUrl)), ref: chatConfig.genesisRef || genesis.DEFAULT_REF }
+})
+
+/**
+ * The install or upgrade, for a terminal window on the canvas. The API the
+ * station started is stopped first: on Windows pipx cannot replace a venv
+ * whose python.exe is running.
+ */
+ipcMain.handle('genesis:install', () => {
+  genesis.stop()
+  const chatConfig = settings ? settings.read().chat : {}
+  return genesis.installCommand(chatConfig.genesisRef || genesis.DEFAULT_REF)
+})
+
+ipcMain.handle('genesis:window', () => {
+  try {
+    return { ok: genesis.openWindow() }
+  } catch (err) {
+    return { ok: false, error: err.message }
+  }
 })
 
 /* ------------------------------------------------------------- the look */

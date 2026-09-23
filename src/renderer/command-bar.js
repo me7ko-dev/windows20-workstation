@@ -170,6 +170,23 @@ export function createCommandBar({ root, desktop, programs, canvas, toast, minim
         run: () => desktop.openChat()
       },
       {
+        id: 'genesis:install',
+        label: 'Инсталирай / обнови Genesis',
+        hint: 'от клона с ъпгрейда, в терминал тук',
+        keywords: ['genesis', 'генезис', 'инсталирай', 'обнови', 'ъпгрейд', 'upgrade', 'update', 'install'],
+        run: () => desktop.installGenesis()
+      },
+      {
+        id: 'genesis:window',
+        label: 'Genesis в отделен прозорец',
+        hint: 'неговият терминален чат, извън станцията',
+        keywords: ['genesis', 'генезис', 'отделен', 'прозорец', 'агент', 'автономен'],
+        run: async () => {
+          const result = await window.w20.genesis.window()
+          if (!result.ok) toast(`Genesis не се отвори: ${result.error || ''}`, { tone: 'warn' })
+        }
+      },
+      {
         id: 'look:theme',
         label: themeNow() === 'light' ? 'Тъмна тема' : 'Светла тема',
         hint: 'Ctrl+Alt+L',

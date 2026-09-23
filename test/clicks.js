@@ -114,6 +114,7 @@ const ptyStub = {
   spawn(shell, args, opts) {
     const proc = {
       shell,
+      args,
       opts,
       alive: true,
       handlers: { data: [], exit: [] },
@@ -880,6 +881,21 @@ async function main() {
   expect('ИИ чатът е Genesis', ownFoot.startsWith('genesis') && ownText.includes('Аз съм Genesis'), ownFoot)
   const sentToGenesis = genesisRequests.pop() || ''
   expect('на Genesis не се праща чужд system prompt', !sentToGenesis.includes('"role":"system"') && sentToGenesis.includes('кой си ти'))
+  // Install / upgrade: from the branch with the upgrade, through its own
+  // installer on Windows, plus the API server; in a terminal on the canvas.
+  const installs = spawned.length
+  await run(`await window.__t.type('обнови genesis'); return await window.__t.runLabel('Инсталирай / обнови Genesis')`)
+  await sleep(600)
+  const installer = spawned.slice(installs).pop()
+  const installText = installer ? JSON.stringify([installer.shell, installer.args]) : ''
+  expect('Genesis се инсталира от клона с ъпгрейда', installText.includes('@claude/token-upgrade-ipe4yg') && installText.includes('inject genesis-agent fastapi uvicorn'), installText.slice(0, 200))
+  const win32 = JSON.stringify(require('../src/main/genesis.js').installCommand(undefined, 'win32'))
+  expect('на Windows — с install_windows.ps1 на същия клон', win32.includes('claude/token-upgrade-ipe4yg/scripts/install_windows.ps1') && win32.includes("-Ref 'claude/token-upgrade-ipe4yg'"))
+  expect('клон с команда вътре не минава', require('../src/main/genesis.js').installCommand("x'; rm -rf /", 'linux').ref === 'claude/token-upgrade-ipe4yg')
+  await run(`window.__t.clear(); return true`)
+  await sleep(300)
+  await run(`window.__t.key('i', { shift: true }); return true`)
+  await sleep(300)
   expect('прозорецът се казва Genesis', (await run(`return document.querySelector('.w20-window--chat .w20-window-title').textContent`)).includes('Genesis'))
   did('чат: отваряне, стрийминг, код към терминала')
   await drain('чатът')

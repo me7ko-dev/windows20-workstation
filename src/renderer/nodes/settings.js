@@ -79,8 +79,17 @@ export function mountSettings(win, { speaker, onSaved, openWeb } = {}) {
     </label>
     <label class="w20-check" data-role="chat-auto-row">
       <input type="checkbox" data-role="chat-autostart" />
-      <span>Пусни Genesis сам, ако не работи (само на 127.0.0.1)</span>
+      <span>Пускай Genesis заедно със станцията — отделен процес, остава да работи и след нея (само на 127.0.0.1)</span>
     </label>
+    <label class="w20-field" data-role="chat-ref-row">
+      <span>Клон за инсталация</span>
+      <input type="text" data-role="chat-ref" placeholder="claude/token-upgrade-ipe4yg" spellcheck="false" />
+    </label>
+    <div class="w20-settings-row">
+      <button class="w20-settings-save is-quiet" data-role="genesis-install">Инсталирай / обнови Genesis</button>
+      <button class="w20-settings-save is-quiet" data-role="genesis-window">Отвори го отделно</button>
+    </div>
+    <p class="w20-settings-hint" data-role="genesis-status"></p>
 
     <h3 class="w20-settings-section">Говорене — отговорът на глас</h3>
     <label class="w20-field">
@@ -176,6 +185,16 @@ export function mountSettings(win, { speaker, onSaved, openWeb } = {}) {
     $('chat-auto-row').hidden = !own
   }
 
+  async function showGenesis() {
+    if (!window.w20.genesis) return
+    const s = await window.w20.genesis.status()
+    $('genesis-status').textContent = s.running
+      ? `Genesis работи на ${s.url}.`
+      : s.python
+        ? `Genesis е инсталиран, но не работи — чатът ще го пусне.`
+        : `Genesis не е инсталиран. Бутонът горе го слага от „${s.ref}“.`
+  }
+
   function syncSpeech() {
     const engine = $('speech-engine').value
     $('speech-voice-row').hidden = engine !== 'system'
@@ -228,6 +247,8 @@ export function mountSettings(win, { speaker, onSaved, openWeb } = {}) {
     $('chat-provider').value = (state.chat && state.chat.provider) || 'genesis'
     $('chat-url').value = (state.chat && state.chat.genesisUrl) || ''
     $('chat-autostart').checked = !state.chat || state.chat.autostart !== false
+    $('chat-ref').value = (state.chat && state.chat.genesisRef) || ''
+    showGenesis()
     syncChat()
     $('speech-engine').value = state.speech.engine
     $('speech-rate').value = String(state.speech.rate || 1)
@@ -249,6 +270,12 @@ export function mountSettings(win, { speaker, onSaved, openWeb } = {}) {
   $('ai-provider').addEventListener('change', () => syncSection('ai', catalog.chat))
   $('speech-engine').addEventListener('change', syncSpeech)
   $('chat-provider').addEventListener('change', syncChat)
+  // Saved first, so the branch typed in is the one installed.
+  $('genesis-install').addEventListener('click', async () => {
+    await save()
+    document.dispatchEvent(new CustomEvent('w20:genesis-install'))
+  })
+  $('genesis-window').addEventListener('click', () => window.w20.genesis.window())
   $('speech-rate').addEventListener('input', syncSpeech)
 
   for (const prefix of ['stt', 'ai']) {
@@ -277,7 +304,8 @@ export function mountSettings(win, { speaker, onSaved, openWeb } = {}) {
       chat: {
         provider: $('chat-provider').value,
         genesisUrl: $('chat-url').value.trim() || 'http://127.0.0.1:8100',
-        autostart: $('chat-autostart').checked
+        autostart: $('chat-autostart').checked,
+        genesisRef: $('chat-ref').value.trim() || 'claude/token-upgrade-ipe4yg'
       },
       speech: {
         engine: $('speech-engine').value,

@@ -96,6 +96,7 @@ async function boot() {
   })
   bar.onEditKeys(() => keymap.editKeys())
   document.addEventListener('w20:edit-keys', () => keymap.editKeys())
+  document.addEventListener('w20:genesis-install', () => desktop.installGenesis())
   // The user's own keys from keybindings.json, over the defaults.
   keymap.reload()
 

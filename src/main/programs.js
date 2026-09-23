@@ -39,6 +39,7 @@ const CATALOG = [
     accent: '#c4b5fd',
     candidates: [
       path.join(HOME, '.local', 'bin', 'genesis.exe'),
+      path.join(LOCAL, 'pipx', 'pipx', 'venvs', 'genesis-agent', 'Scripts', 'genesis.exe'),
       path.join(HOME, '.venvs', 'genesis', 'Scripts', 'genesis.exe'),
       path.join(HOME, 'pipx', 'venvs', 'genesis-agent', 'Scripts', 'genesis.exe')
     ],
