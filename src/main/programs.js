@@ -212,8 +212,13 @@ function onPath(command) {
   try {
     const finder = process.platform === 'win32' ? 'where.exe' : 'which'
     const out = execFileSync(finder, [command], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] })
-    const first = out.split(/\r?\n/).find((line) => line.trim())
-    return first ? first.trim() : null
+    const found = out.split(/\r?\n/).map((line) => line.trim()).filter(Boolean)
+    if (process.platform !== 'win32') return found[0] || null
+    // `where` lists npm's extensionless sh shim first (…\npm\claude), which
+    // Windows cannot start. Only what CreateProcess runs counts, .exe first.
+    const rank = (file) => ['.exe', '.cmd', '.bat', '.com'].indexOf(path.extname(file).toLowerCase())
+    const runnable = found.filter((file) => rank(file) >= 0).sort((a, b) => rank(a) - rank(b))
+    return runnable[0] || null
   } catch {
     return null
   }
