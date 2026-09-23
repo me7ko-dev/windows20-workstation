@@ -71,6 +71,7 @@ export function createDesktop({ plane, canvas, programs, home, speaker, insets, 
   let focusedId = null
   // Where "› В терминала" from the chat types — the terminal last touched.
   let lastTerminalId = null
+  let stationActions = null
   const planes = new Map() // workspaceId -> plane element
   const listeners = new Set()
   let saveTimer = null
@@ -223,6 +224,8 @@ export function createDesktop({ plane, canvas, programs, home, speaker, insets, 
       content = mountChat(win, {
         messages: node.messages || [],
         speaker,
+        // Asked at send time: a chat restored at start exists before the bar.
+        station: () => (stationActions ? stationActions() : null),
         openSettings: () => openSettings(),
         sendToTerminal: (text) => {
           const target = terminalForChat()
@@ -1214,6 +1217,12 @@ export function createDesktop({ plane, canvas, programs, home, speaker, insets, 
       const entry = focusedId ? live.get(focusedId) : null
       if (!entry || entry.win.node.type !== 'terminal') return null
       return entry
+    },
+    /** The last terminal touched on this station, focused or not. */
+    lastTerminal: () => terminalForChat(),
+    /** The command bar's actions, lent to the chat so its AI can act. */
+    setStationActions: (fn) => {
+      stationActions = fn
     },
     switchTo,
     setWallpaper,

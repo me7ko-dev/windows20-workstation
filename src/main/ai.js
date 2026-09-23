@@ -27,23 +27,33 @@ const SYSTEM = `Ти си гласовото управление на „Window
 - Ако е въпрос, а не команда, "command" е null и отговаряш кратко в "say".
 - Ако не си сигурен какво иска, "command" е null и питаш кратко в "say".`
 
-/** Models wrap JSON in prose or fences often enough that parsing must forgive it. */
+/**
+ * Models wrap JSON in prose or fences often enough that parsing must forgive
+ * it. A reply names one command, or — Genesis may chain them — a list under
+ * `actions`; both come back as `actions`, with the first also as `command`.
+ */
 function parseReply(text) {
   const start = text.indexOf('{')
   const end = text.lastIndexOf('}')
   if (start !== -1 && end > start) {
     try {
       const parsed = JSON.parse(text.slice(start, end + 1))
+      const one = (a) =>
+        a && typeof a.command === 'string' && a.command && a.command !== 'null'
+          ? { command: a.command, arg: typeof a.arg === 'string' ? a.arg : '' }
+          : null
+      const actions = (Array.isArray(parsed.actions) ? parsed.actions.map(one) : [one(parsed)]).filter(Boolean).slice(0, 6)
       return {
-        command: typeof parsed.command === 'string' && parsed.command !== 'null' ? parsed.command : null,
-        arg: typeof parsed.arg === 'string' ? parsed.arg : '',
+        command: actions[0] ? actions[0].command : null,
+        arg: actions[0] ? actions[0].arg : '',
+        actions,
         say: typeof parsed.say === 'string' ? parsed.say : ''
       }
     } catch {
       // fall through: treat the whole reply as speech
     }
   }
-  return { command: null, arg: '', say: text.trim().slice(0, 400) }
+  return { command: null, arg: '', actions: [], say: text.trim().slice(0, 400) }
 }
 
 function chatUrl(provider, endpoint) {
@@ -196,12 +206,89 @@ async function navigate({ text, commands, context }, settings) {
   return { ok: false, error: `ИИ не отговори. ${failures.join(' · ')}` }
 }
 
+/* ------------------------------------------------- Genesis at the wheel */
+
+/**
+ * Genesis keeps its own system prompt, so the rules travel in the message.
+ * It may chain actions; each id is still checked against the list by the
+ * renderer, and anything marked for confirmation waits for the user's Enter.
+ */
+const GENESIS_RULES = `[Гласово управление на „Windows 20 Workstation“]
+Ти управляваш станцията вместо потребителя. Той ти говори на глас, на български.
+Отговори САМО с един JSON обект, без нищо около него:
+{"actions": [{"command": "<id от списъка>", "arg": "<текст или празно>"}], "say": "<какво да кажеш на глас>"}
+
+Правила:
+- "actions" е редът, в който да се изпълнят командите — нула, една или няколко. Само id от списъка, нищо измислено.
+- "arg" само за команди, които приемат текст.
+- "terminal:type" пише текст в последния терминал, без да натиска Enter — Enter остава за потребителя.
+- "say" е кратко, на български, без markdown и емоджи, защото се чете на глас.
+- Ако е въпрос, а не действие — "actions" е празен и отговаряш в "say".`
+
+async function command({ text, commands, context, history }, genesis) {
+  const list = (commands || [])
+    .slice(0, 200)
+    .map((c) => `${c.id} — ${c.label}${c.takesArg ? ' (приема текст в "arg")' : ''}`)
+    .join('\n')
+  // The last few spoken turns, so "и затвори го" knows what "го" is.
+  const before = (Array.isArray(history) ? history : [])
+    .filter((m) => m && (m.role === 'user' || m.role === 'assistant') && typeof m.content === 'string')
+    .slice(-8)
+    .map((m) => ({ role: m.role, content: m.content.slice(0, 2000) }))
+  const messages = [
+    ...before,
+    {
+      role: 'user',
+      content: `${GENESIS_RULES}\n\nКоманди в момента:\n${list}\n\n${context ? `Какво има на екрана: ${context}\n\n` : ''}Потребителят каза: „${text}“`
+    }
+  ]
+  const url = `${String(genesis.url || '').replace(/\/+$/, '').replace(/\/v1$/, '')}/v1/chat/completions`
+  const result = await ask(url, '', { model: 'genesis-agent', messages, temperature: 0.2, max_tokens: 1200 }, 180000)
+  if (result.status !== 200) return { ok: false, error: explain('genesis', result) }
+  if (!result.content) return { ok: false, error: 'Genesis върна празен отговор.' }
+  return { ok: true, provider: 'genesis', model: 'genesis-agent', fellBack: false, ...parseReply(result.content) }
+}
+
 /* ------------------------------------------------------------ the chat */
 
 const CHAT_SYSTEM = `Ти си ИИ помощникът в „Windows 20 Workstation“ — работна станция на Windows с терминали, агенти за код (Claude Code, Gemini CLI, Aider) и браузър.
 Отговаряй на езика, на който ти пишат — по подразбиране на български. Бъди кратък и конкретен.
 Команди за терминала давай в блок \`\`\`, по една на ред, за PowerShell, освен ако не питат за друго — потребителят може да ги прати в терминала с един бутон.
 Не измисляй факти; ако не знаеш, кажи го.`
+
+/**
+ * The station, told to whoever answers the chat: the date (a model has no
+ * clock and will otherwise guess its training year), what is on screen, and
+ * the actions it may take. Actions go in one ```w20 block at the end of the
+ * reply; the chat hides it, checks every id against its own list and runs
+ * them. `web:lookup`/`web:read` come back as a message so it can answer.
+ */
+function stationPrompt(station) {
+  if (!station || !Array.isArray(station.commands)) return ''
+  const list = station.commands
+    .slice(0, 200)
+    .map((c) => `${c.id} — ${c.label}${c.takesArg ? ' (arg: текст)' : ''}`)
+    .concat([
+      'web:lookup — търси в интернет; резултатите ти се връщат и тогава отговаряш (arg: заявка)',
+      'web:read — чете уеб страница и ти връща текста ѝ (arg: адрес)'
+    ])
+    .join('\n')
+  return `[Станцията] Днес е ${station.now || new Date().toString()}.
+Ти си ИИ чатът в „Windows 20 Workstation“ и можеш да действаш в нея — не само да съветваш.
+${station.context ? `На екрана: ${station.context}\n` : ''}
+Когато потребителят иска нещо, което станцията прави сама (браузър, терминал, програма, тема, станция…), НЕ давай PowerShell команди — направи го. Сложи НАКРАЯ на отговора си точно един блок:
+\`\`\`w20
+{"actions": [{"command": "<id>", "arg": "<текст или празно>"}]}
+\`\`\`
+Правила:
+- Само id от списъка долу, в реда, в който да се изпълнят. Без блок, ако няма какво да се прави.
+- Въпрос за нещо актуално (дата, новини, версии, цени, „провери в Google“) — не гадай и не казвай, че нямаш интернет: използвай web:lookup, а после при нужда web:read. Резултатите идват в съобщение, започващо с „[Станцията]“; тогава отговори с тях и посочи източника.
+- terminal:type само пише в терминала, без Enter.
+- Текстът преди блока е кратък — какво правиш, на езика на потребителя.
+
+Команди:
+${list}`
+}
 
 /**
  * One streamed request. Resolves when the reply is complete — or with the
@@ -286,7 +373,7 @@ async function stream(url, apiKey, body, timeoutMs, onDelta, signal) {
  * navigation does, but only before the first word: once a service has started
  * answering, switching would stitch two answers together.
  */
-async function chat({ messages }, settings, onDelta, signal, { genesis = null } = {}) {
+async function chat({ messages, station }, settings, onDelta, signal, { genesis = null } = {}) {
   const state = settings.read()
   const config = state.ai
   // Genesis first when it is the chat's brain and answering; the navigation
@@ -303,7 +390,10 @@ async function chat({ messages }, settings, onDelta, signal, { genesis = null } 
     .slice(-24)
     .map((m) => ({ role: m.role, content: m.content.slice(0, 16000) }))
   if (!history.length) return { ok: false, error: 'Няма въпрос.' }
-  const full = [{ role: 'system', content: CHAT_SYSTEM }, ...history]
+  const told = stationPrompt(station)
+  const full = [{ role: 'system', content: told ? `${CHAT_SYSTEM}\n\n${told}` : CHAT_SYSTEM }, ...history]
+  // Genesis keeps its own system prompt and puts ours after it: only the station.
+  const forGenesis = told ? [{ role: 'system', content: told }, ...history] : history
 
   const failures = []
   let chain = []
@@ -326,7 +416,7 @@ async function chat({ messages }, settings, onDelta, signal, { genesis = null } 
           url,
           apiKey,
           // Genesis has its own voice and its own system prompt; ours would be a second one.
-          requestBody(provider, model, own ? history : full, { temperature: 0.4, max_tokens: 4096 }),
+          requestBody(provider, model, own ? forGenesis : full, { temperature: 0.4, max_tokens: 4096 }),
           timeoutMs,
           onDelta,
           signal
@@ -356,4 +446,4 @@ async function chat({ messages }, settings, onDelta, signal, { genesis = null } 
   return { ok: false, error: `ИИ не отговори. ${failures.join(' · ')}` }
 }
 
-module.exports = { navigate, chat, parseReply, chatUrl }
+module.exports = { navigate, command, chat, parseReply, chatUrl, stationPrompt }

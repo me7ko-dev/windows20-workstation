@@ -578,6 +578,18 @@ export function createCommandBar({ root, desktop, programs, canvas, toast, minim
       takesArg: true,
       run: (arg) => desktop.openWeb(`https://duckduckgo.com/?q=${encodeURIComponent(arg || '')}`)
     })
+    // Typed, never run: Enter stays the user's, as with the chat's button.
+    const terminal = desktop.lastTerminal()
+    if (terminal && terminal.content && terminal.content.send) {
+      commands.push({
+        id: 'terminal:type',
+        label: `Напиши текст в терминала „${terminal.win.node.title}“, без Enter`,
+        takesArg: true,
+        run: (arg) => {
+          if (arg) terminal.content.send(arg)
+        }
+      })
+    }
     return commands
   }
 
@@ -593,16 +605,20 @@ export function createCommandBar({ root, desktop, programs, canvas, toast, minim
   }
 
   let asking = false
+  // What was said to Genesis and what it answered, so it can follow on.
+  const talk = []
 
   /**
-   * A sentence the table did not know goes to the ИИ, which may only answer
-   * with one of the ids it was given — checked again here before anything
-   * runs. Heard sentences get their reply read aloud.
+   * A sentence the table did not know goes to the ИИ — Genesis, when the
+   * voice is given to it — which may only answer with ids it was given,
+   * checked again here before anything runs. Heard sentences get their reply
+   * read aloud.
    */
   async function askAI(text, { spoken }) {
     if (asking) return
     const state = await window.w20.settings.get()
-    if (!state || !state.ai.ready) {
+    const genesisLeads = Boolean(state && state.chat.provider === 'genesis' && state.chat.voice !== false)
+    if (!state || (!state.ai.ready && !genesisLeads)) {
       input.value = text
       toast('ИИ не е настроен. В Настройки въведи безплатен ключ (Groq или Gemini) или избери Ollama.', {
         tone: 'warn'
@@ -617,13 +633,15 @@ export function createCommandBar({ root, desktop, programs, canvas, toast, minim
 
     asking = true
     el.dataset.voice = 'thinking'
-    flash('Мисля…')
+    flash(genesisLeads ? 'Genesis мисли…' : 'Мисля…')
+    if (genesisLeads) toast(`Genesis: „${text}“`, { timeout: 4000 })
     let result
     try {
       result = await window.w20.ai.navigate({
         text,
         commands: commands.map(({ id, label, takesArg }) => ({ id, label, takesArg: Boolean(takesArg) })),
-        context: describeScreen()
+        context: describeScreen(),
+        history: talk.slice(-8)
       })
     } finally {
       asking = false
@@ -633,29 +651,41 @@ export function createCommandBar({ root, desktop, programs, canvas, toast, minim
     if (!result || !result.ok) {
       input.value = text
       toast((result && result.error) || 'ИИ не отговори.', { tone: 'error' })
-      if (spoken && speaker) speaker.say('ИИ не отговори.')
+      if (spoken && speaker) speaker.say(genesisLeads ? 'Genesis не отговори.' : 'ИИ не отговори.')
       return
     }
 
-    const command = result.command ? byId.get(result.command) : null
+    // One action or several, in order. The first that needs the user's own
+    // Enter stops the chain there: nothing after it runs on a guess.
+    const actions = Array.isArray(result.actions) ? result.actions : result.command ? [{ command: result.command, arg: result.arg }] : []
     let reply = result.say
-
-    if (command && command.confirm) {
-      // Something that cannot be undone waits for the user's own Enter.
-      input.value = command.label
-      input.focus()
-      refresh()
-      reply = reply || `${command.label}? Потвърди с Enter.`
-    } else if (command) {
-      command.run(result.arg)
-      reply = reply || command.label
-    } else if (result.command) {
-      // An id that is not on the list — say so rather than guess at one.
-      reply = reply || 'Не мога да направя това.'
+    const done = []
+    for (const action of actions) {
+      const command = byId.get(action.command)
+      if (!command) {
+        // An id that is not on the list — say so rather than guess at one.
+        reply = reply || 'Не мога да направя това.'
+        continue
+      }
+      if (command.confirm) {
+        input.value = command.label
+        input.focus()
+        refresh()
+        reply = `${reply ? `${reply} ` : ''}${command.label}? Потвърди с Enter.`
+        break
+      }
+      command.run(action.arg)
+      done.push(command.label)
     }
+    reply = reply || done.join(', ')
+
+    talk.push({ role: 'user', content: text }, { role: 'assistant', content: JSON.stringify({ actions, say: result.say || '' }) })
+    while (talk.length > 16) talk.shift()
 
     if (reply) {
-      const via = result.fellBack ? ` (отговори ${result.provider} — първият избор беше зает)` : ''
+      const via = result.fellBack
+        ? ` (отговори ${result.provider}${result.note ? ` — ${result.note}` : ' — първият избор беше зает'})`
+        : ''
       toast(reply + via, { timeout: Math.min(15000, 4000 + reply.length * 60) })
       if (spoken && speaker) speaker.say(reply)
     }
@@ -719,6 +749,8 @@ export function createCommandBar({ root, desktop, programs, canvas, toast, minim
       editKeysHandler = fn
     },
     askAI,
-    flash
+    flash,
+    /** What the chat's AI may do right now — the same list the voice gets. */
+    stationActions: () => ({ commands: aiCommands(), context: describeScreen() })
   }
 }

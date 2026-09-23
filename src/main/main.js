@@ -15,6 +15,7 @@ const speech = require('./speech')
 const { catalog: providerCatalog } = require('./providers')
 const { createKeybindings } = require('./keybindings')
 const genesis = require('./genesis')
+const webLookup = require('./web-lookup')
 
 let store = null
 let settings = null
@@ -492,8 +493,23 @@ ipcMain.handle('voice:transcribe', async (_e, { buffer, mimeType }) => {
 
 ipcMain.handle('ai:navigate', async (_e, request) => {
   if (!settings) return { ok: false, error: 'Настройките още не са заредени.' }
+  // Genesis at the wheel when it is the brain and the voice is given to it;
+  // the navigation service is the way back when Genesis cannot answer.
+  const chatConfig = settings.read().chat
+  if (chatConfig.provider === 'genesis' && chatConfig.voice !== false) {
+    const own = await genesis.ensure({ url: chatConfig.genesisUrl, autostart: chatConfig.autostart !== false, env: agentEnv(settings) })
+    const result = own.ok ? await ai.command(request || {}, { url: chatConfig.genesisUrl }) : own
+    if (result.ok) return result
+    if (!settings.safe().ai.ready) return result
+    const fallback = await ai.navigate(request || {}, settings)
+    return fallback.ok ? { ...fallback, fellBack: true, note: result.error } : { ok: false, error: `${result.error} · ${fallback.error}` }
+  }
   return ai.navigate(request || {}, settings)
 })
+
+// Search and read for the chat, whose agent has no internet of its own.
+ipcMain.handle('web:lookup', (_e, query) => webLookup.lookup(query))
+ipcMain.handle('web:read', (_e, url) => webLookup.read(url))
 
 ipcMain.handle('speech:say', async (_e, text) => {
   if (!settings) return { ok: false, error: 'Настройките още не са заредени.' }

@@ -81,6 +81,10 @@ export function mountSettings(win, { speaker, onSaved, openWeb } = {}) {
       <input type="checkbox" data-role="chat-autostart" />
       <span>Пускай Genesis заедно със станцията — отделен процес, остава да работи и след нея (само на 127.0.0.1)</span>
     </label>
+    <label class="w20-check" data-role="chat-voice-row">
+      <input type="checkbox" data-role="chat-voice" />
+      <span>Гласът говори с Genesis — той решава какво да направи в станцията (простите команди остават мигновени)</span>
+    </label>
     <label class="w20-field" data-role="chat-ref-row">
       <span>Клон за инсталация</span>
       <input type="text" data-role="chat-ref" placeholder="claude/token-upgrade-ipe4yg" spellcheck="false" />
@@ -183,6 +187,7 @@ export function mountSettings(win, { speaker, onSaved, openWeb } = {}) {
     const own = $('chat-provider').value === 'genesis'
     $('chat-url-row').hidden = !own
     $('chat-auto-row').hidden = !own
+    $('chat-voice-row').hidden = !own
   }
 
   async function showGenesis() {
@@ -247,6 +252,7 @@ export function mountSettings(win, { speaker, onSaved, openWeb } = {}) {
     $('chat-provider').value = (state.chat && state.chat.provider) || 'genesis'
     $('chat-url').value = (state.chat && state.chat.genesisUrl) || ''
     $('chat-autostart').checked = !state.chat || state.chat.autostart !== false
+    $('chat-voice').checked = !state.chat || state.chat.voice !== false
     $('chat-ref').value = (state.chat && state.chat.genesisRef) || ''
     showGenesis()
     syncChat()
@@ -305,6 +311,7 @@ export function mountSettings(win, { speaker, onSaved, openWeb } = {}) {
         provider: $('chat-provider').value,
         genesisUrl: $('chat-url').value.trim() || 'http://127.0.0.1:8100',
         autostart: $('chat-autostart').checked,
+        voice: $('chat-voice').checked,
         genesisRef: $('chat-ref').value.trim() || 'claude/token-upgrade-ipe4yg'
       },
       speech: {

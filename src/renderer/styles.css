@@ -1939,6 +1939,20 @@ body.is-fields .w20-dock-item {
   margin-top: 8px;
 }
 
+/* What the station looked up for the AI — a line, not a message. */
+.w20-chat-tool {
+  align-self: center;
+  max-width: 90%;
+  padding: 4px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  font-size: 11px;
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .w20-chat-foot {
   display: flex;
   align-items: center;

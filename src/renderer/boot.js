@@ -57,6 +57,7 @@ async function boot() {
 
   const minimap = createMinimap({ root, desktop, canvas, viewport })
   const bar = createCommandBar({ root, desktop, programs: info.programs, canvas, toast, minimap, speaker })
+  desktop.setStationActions(() => bar.stationActions())
   barEl = root.querySelector('.w20-bar-main')
   dockEl = buildDock(root, info.programs, desktop)
   const overview = createOverview({ root, desktop })

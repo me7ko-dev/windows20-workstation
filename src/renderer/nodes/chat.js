@@ -12,10 +12,49 @@
  */
 
 const MAX_SAVED = 40
+// Look-ups in a row before the answer must come from what was found.
+const MAX_ROUNDS = 3
 
 let seq = 0
 
-export function mountChat(win, { messages = [], onChange, speaker, sendToTerminal, openSettings } = {}) {
+/** The day and hour, in words — a model has no clock of its own. */
+function nowText() {
+  return new Date().toLocaleString('bg-BG', {
+    weekday: 'long',
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit'
+  })
+}
+
+/**
+ * The ```w20 blocks of a reply: what it asked the station to do. A model
+ * often ends its reply without closing the last fence; the end of the text
+ * closes it then.
+ */
+function extractActions(text) {
+  const actions = []
+  for (const m of String(text || '').matchAll(/```w20\s*\n?([\s\S]*?)(?:```|$)/g)) {
+    const body = m[1]
+    const start = body.indexOf('{')
+    const end = body.lastIndexOf('}')
+    if (start === -1 || end <= start) continue
+    try {
+      const parsed = JSON.parse(body.slice(start, end + 1))
+      const list = Array.isArray(parsed.actions) ? parsed.actions : [parsed]
+      for (const a of list) {
+        if (a && typeof a.command === 'string' && a.command) actions.push({ command: a.command, arg: typeof a.arg === 'string' ? a.arg : '' })
+      }
+    } catch {
+      // a block it could not close properly does nothing
+    }
+  }
+  return actions.slice(0, 8)
+}
+
+export function mountChat(win, { messages = [], onChange, speaker, sendToTerminal, openSettings, station } = {}) {
   const history = messages.filter((m) => m && typeof m.content === 'string').slice(-MAX_SAVED)
 
   const wrap = document.createElement('div')
@@ -49,6 +88,9 @@ export function mountChat(win, { messages = [], onChange, speaker, sendToTermina
         // A fence: the first line may name the language.
         const nl = part.indexOf('\n')
         const lang = nl > -1 ? part.slice(0, nl).trim() : ''
+        // The station's own block is for the station, not for reading — nor
+        // is a fence still opening, before its language is known.
+        if (lang === 'w20' || (i === parts.length - 1 && nl === -1 && busy)) return
         const code = (nl > -1 && /^[\w+-]*$/.test(lang) ? part.slice(nl + 1) : part).replace(/\n$/, '')
         el.appendChild(codeBlock(code, lang, i === parts.length - 1))
         return
@@ -104,6 +146,14 @@ export function mountChat(win, { messages = [], onChange, speaker, sendToTermina
   }
 
   function bubble(message) {
+    // What the station found for the AI: one line, the text itself is for it.
+    if (message.tool) {
+      const note = document.createElement('div')
+      note.className = 'w20-chat-tool'
+      note.textContent = message.label || 'Станцията'
+      log.appendChild(note)
+      return { el: note, body: note }
+    }
     const el = document.createElement('div')
     el.className = `w20-chat-msg is-${message.role}${message.error ? ' is-error' : ''}`
     const body = document.createElement('div')
@@ -166,6 +216,60 @@ export function mountChat(win, { messages = [], onChange, speaker, sendToTermina
     if (empties) empties.remove()
     history.push({ role: 'user', content: text })
     bubble(history[history.length - 1])
+    await respond(text, 0)
+  }
+
+  /**
+   * Run what the reply asked for. Station actions go through the bar's own
+   * list — an id not on it does nothing, and anything that needs the user's
+   * Enter is left for them. Look-ups are gathered: their results go back to
+   * the AI, which answers from them in the next round.
+   */
+  async function act(actions, commands) {
+    const byId = new Map(commands.map((c) => [c.id, c]))
+    const did = []
+    const found = []
+    for (const action of actions) {
+      if (action.command === 'web:lookup' && action.arg) {
+        const r = await window.w20.ai.lookup(action.arg)
+        found.push(
+          r.ok
+            ? {
+                label: `🔎 Търсих: ${r.query}`,
+                content:
+                  `[Станцията] Резултати от търсене „${r.query}“:\n` +
+                  r.results.map((x, n) => `${n + 1}. ${x.title} — ${x.url}\n   ${x.snippet}`).join('\n')
+              }
+            : { label: `🔎 ${r.error}`, content: `[Станцията] Търсенето „${action.arg}“ не успя: ${r.error}` }
+        )
+      } else if (action.command === 'web:read' && action.arg) {
+        const r = await window.w20.ai.read(action.arg)
+        found.push(
+          r.ok
+            ? { label: `📄 Прочетох: ${r.title || r.url}`, content: `[Станцията] Текстът на ${r.url} (${r.title}):\n${r.text}` }
+            : { label: `📄 ${r.error}`, content: `[Станцията] ${action.arg} не се отвори: ${r.error}` }
+        )
+      } else {
+        const command = byId.get(action.command)
+        if (!command) continue
+        if (command.confirm) {
+          did.push(`„${command.label}“ чака теб — от лентата`)
+          continue
+        }
+        try {
+          command.run(action.arg)
+          did.push(`✓ ${command.label}`)
+        } catch (err) {
+          did.push(`✗ ${command.label}: ${err.message}`)
+        }
+      }
+    }
+    return { did, found }
+  }
+
+  async function respond(text, round) {
+    const here = station ? station() : null
+    const commands = here ? here.commands : []
 
     seq += 1
     const requestId = `${win.node.id}:${Date.now()}:${seq}`
@@ -179,7 +283,14 @@ export function mountChat(win, { messages = [], onChange, speaker, sendToTermina
 
     const result = await window.w20.ai.chat({
       requestId,
-      messages: history.map(({ role, content }) => ({ role, content }))
+      messages: history.map(({ role, content }) => ({ role, content })),
+      station: here
+        ? {
+            commands: commands.map(({ id, label, takesArg }) => ({ id, label, takesArg: Boolean(takesArg) })),
+            context: here.context,
+            now: nowText()
+          }
+        : null
     })
     busy = null
     $('send').hidden = false
@@ -187,8 +298,12 @@ export function mountChat(win, { messages = [], onChange, speaker, sendToTermina
     view.el.remove()
 
     if (!result.ok) {
-      history.pop() // the question stays in the box to send again
-      input.value = text
+      // The question stays in the box to send again — unless this was an
+      // answer to what the station found, where the question is long answered.
+      if (round === 0) {
+        history.pop()
+        input.value = text
+      }
       redraw()
       const failed = bubble({ role: 'assistant', content: result.error, error: true, via: '' })
       if (openSettings && /Настройки/.test(result.error)) {
@@ -204,20 +319,30 @@ export function mountChat(win, { messages = [], onChange, speaker, sendToTermina
     if (typeof result.content === 'string' && result.content.length >= answer.content.length) answer.content = result.content
     // Stopped before the first word: nothing to keep.
     if (!answer.content) {
-      history.pop()
-      input.value = text
+      if (round === 0) {
+        history.pop()
+        input.value = text
+      }
       redraw()
       return
     }
+    // A stopped reply does not get to act on half a block.
+    const { did, found } = result.stopped ? { did: [], found: [] } : await act(extractActions(answer.content), commands)
     const name = result.provider ? `${result.provider}${result.model ? ` · ${result.model}` : ''}` : ''
-    answer.via = [name, result.fellBack ? 'резервна услуга' : '', result.note || '', result.stopped ? 'спрян' : '', result.cut ? 'прекъснат' : '']
+    answer.via = [name, result.fellBack ? 'резервна услуга' : '', result.note || '', result.stopped ? 'спрян' : '', result.cut ? 'прекъснат' : '', ...did]
       .filter(Boolean)
       .join(' · ')
     history.push(answer)
-    while (history.length > MAX_SAVED) history.shift()
     bubble(answer)
+    for (const f of found) {
+      const note = { role: 'user', tool: true, label: f.label, content: f.content }
+      history.push(note)
+      bubble(note)
+    }
+    while (history.length > MAX_SAVED) history.shift()
     log.scrollTop = log.scrollHeight
     save()
+    if (found.length && round < MAX_ROUNDS) await respond(text, round + 1)
   }
 
   const offDelta = window.w20.ai.onDelta(({ requestId, delta, status }) => {

@@ -43,7 +43,9 @@ function createSettings(userDataDir) {
       // The branch "Инсталирай / обнови Genesis" installs from.
       genesisRef: 'claude/token-upgrade-ipe4yg',
       // Start Genesis with the station, as its own process.
-      autostart: true
+      autostart: true,
+      // What is said to the station goes to Genesis, and Genesis runs it.
+      voice: true
     },
     // Speaking back.
     speech: {

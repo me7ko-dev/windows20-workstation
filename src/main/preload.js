@@ -59,6 +59,9 @@ contextBridge.exposeInMainWorld('w20', {
     // request id; the key stays in the main process like everywhere else.
     chat: (request) => ipcRenderer.invoke('ai:chat', request),
     stop: (requestId) => ipcRenderer.send('ai:stop', requestId),
+    // Plain text back — results or a page stripped of its markup.
+    lookup: (query) => ipcRenderer.invoke('web:lookup', query),
+    read: (url) => ipcRenderer.invoke('web:read', url),
     onDelta: (handler) => {
       const listener = (_e, payload) => handler(payload)
       ipcRenderer.on('ai:delta', listener)
