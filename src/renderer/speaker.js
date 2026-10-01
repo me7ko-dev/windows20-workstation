@@ -43,7 +43,22 @@ export function createSpeaker({ toast }) {
   let turn = 0
   let pending = false
 
+  // Talking or not, for whoever needs to keep quiet meanwhile (the music).
+  let active = false
+  const watchers = new Set()
+  function setActive(on) {
+    if (on === active) return
+    active = on
+    for (const fn of watchers) fn(on)
+  }
+
   function stop() {
+    halt()
+    setActive(false)
+  }
+
+  /** Silence without saying so — say() starts again straight after. */
+  function halt() {
     turn++
     pending = false
     if ('speechSynthesis' in window) speechSynthesis.cancel()
@@ -72,11 +87,18 @@ export function createSpeaker({ toast }) {
   }
 
   async function say(text, { force = false } = {}) {
-    stop()
+    halt()
     const mine = turn
+    // At once, before any wait: whoever holds the music for the voice hands
+    // over to this without a gap where the song comes back.
+    if (text) setActive(true)
+    const quiet = () => {
+      if (mine === turn) setActive(false)
+      return false
+    }
     const cfg = await settings()
     if (mine !== turn) return false
-    if (!text || (cfg.engine === 'off' && !force)) return false
+    if (!text || (cfg.engine === 'off' && !force)) return quiet()
 
     if (cfg.engine === 'system') {
       const list = await bulgarianVoices()
@@ -87,6 +109,8 @@ export function createSpeaker({ toast }) {
         utterance.voice = voice
         utterance.lang = voice.lang
         utterance.rate = Number(cfg.rate) || 1
+        utterance.onend = quiet
+        utterance.onerror = quiet
         speechSynthesis.speak(utterance)
         return true
       }
@@ -100,11 +124,16 @@ export function createSpeaker({ toast }) {
       const error = (result && result.error) || ''
       if (error && (force || error !== warned)) toast(error, { tone: 'warn', timeout: 12000 })
       warned = error
-      return false
+      return quiet()
     }
     const blob = new Blob([result.audio], { type: result.mimeType })
     audio = new Audio(URL.createObjectURL(blob))
-    audio.play().catch((err) => toast(`Звукът не тръгна: ${err.message}`, { tone: 'warn', timeout: 12000 }))
+    audio.addEventListener('ended', quiet)
+    audio.addEventListener('error', quiet)
+    audio.play().catch((err) => {
+      quiet()
+      toast(`Звукът не тръгна: ${err.message}`, { tone: 'warn', timeout: 12000 })
+    })
     return true
   }
 
@@ -114,6 +143,11 @@ export function createSpeaker({ toast }) {
     toggle,
     speaking,
     bulgarianVoices,
+    /** fn(true) when it starts talking, fn(false) when it is done. */
+    onActive: (fn) => {
+      watchers.add(fn)
+      return () => watchers.delete(fn)
+    },
     /** Settings changed — read them again on the next reply. */
     reload: () => {
       config = null

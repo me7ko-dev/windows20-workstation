@@ -14,7 +14,7 @@ const models = require('./models')
  * Whatever it says back is Bulgarian and short, because it is read aloud.
  */
 
-const SYSTEM = `Ти си гласовото управление на „Windows 20 Workstation“ — безкраен десктоп с прозорци на платно.
+const SYSTEM = `Ти си гласовото управление на „AI Workstation“ — безкраен десктоп с прозорци на платно.
 Потребителят ти говори на български. Получаваш списък с команди, които станцията може да изпълни в момента, във вид „id — описание“.
 
 Отговаряй САМО с един JSON обект, без нищо друго около него:
@@ -213,7 +213,7 @@ async function navigate({ text, commands, context }, settings) {
  * It may chain actions; each id is still checked against the list by the
  * renderer, and anything marked for confirmation waits for the user's Enter.
  */
-const GENESIS_RULES = `[Гласово управление на „Windows 20 Workstation“]
+const GENESIS_RULES = `[Гласово управление на „AI Workstation“]
 Ти управляваш станцията вместо потребителя. Той ти говори на глас, на български.
 Отговори САМО с един JSON обект, без нищо около него:
 {"actions": [{"command": "<id от списъка>", "arg": "<текст или празно>"}], "say": "<какво да кажеш на глас>"}
@@ -251,7 +251,7 @@ async function command({ text, commands, context, history }, genesis) {
 
 /* ------------------------------------------------------------ the chat */
 
-const CHAT_SYSTEM = `Ти си ИИ помощникът в „Windows 20 Workstation“ — работна станция на Windows с терминали, агенти за код (Claude Code, Gemini CLI, Aider) и браузър.
+const CHAT_SYSTEM = `Ти си ИИ помощникът в „AI Workstation“ — работна станция на Windows с терминали, агенти за код (Claude Code, Gemini CLI, Aider) и браузър.
 Отговаряй на езика, на който ти пишат — по подразбиране на български. Бъди кратък и конкретен.
 Команди за терминала давай в блок \`\`\`, по една на ред, за PowerShell, освен ако не питат за друго — потребителят може да ги прати в терминала с един бутон.
 Не измисляй факти; ако не знаеш, кажи го.`
@@ -274,7 +274,7 @@ function stationPrompt(station) {
     ])
     .join('\n')
   return `[Станцията] Днес е ${station.now || new Date().toString()}.
-Ти си ИИ чатът в „Windows 20 Workstation“ и можеш да действаш в нея — не само да съветваш.
+Ти си ИИ чатът в „AI Workstation“ и можеш да действаш в нея — не само да съветваш.
 ${station.context ? `На екрана: ${station.context}\n` : ''}
 Когато потребителят иска нещо, което станцията прави сама (браузър, терминал, програма, тема, станция…), НЕ давай PowerShell команди — направи го. Сложи НАКРАЯ на отговора си точно един блок:
 \`\`\`w20
@@ -446,4 +446,4 @@ async function chat({ messages, station }, settings, onDelta, signal, { genesis 
   return { ok: false, error: `ИИ не отговори. ${failures.join(' · ')}` }
 }
 
-module.exports = { navigate, command, chat, parseReply, chatUrl, stationPrompt }
+module.exports = { navigate, command, chat, parseReply, chatUrl, stationPrompt, CHAT_SYSTEM }

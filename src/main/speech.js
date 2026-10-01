@@ -103,7 +103,7 @@ async function sayAzure(text, config, key) {
         'Ocp-Apim-Subscription-Key': key,
         'Content-Type': 'application/ssml+xml',
         'X-Microsoft-OutputFormat': 'audio-24khz-48kbitrate-mono-mp3',
-        'User-Agent': 'windows20-workstation'
+        'User-Agent': 'ai-workstation'
       },
       body: ssml
     })

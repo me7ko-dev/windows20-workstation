@@ -7,6 +7,7 @@ import { createSpeaker } from './speaker.js'
 import { createOverview } from './overview.js'
 import { createKeymap } from './keymap.js'
 import { loadTheme } from './theme.js'
+import { createMusic } from './music.js'
 
 async function boot() {
   const viewport = document.getElementById('viewport')
@@ -21,6 +22,8 @@ async function boot() {
 
   const badge = document.getElementById('station')
   mountFlip()
+  mountFrame()
+  const clean = await mountClean()
 
   const toast = createToasts(root)
   const speaker = createSpeaker({ toast })
@@ -34,8 +37,11 @@ async function boot() {
     const view = viewport.getBoundingClientRect()
     const dock = dockEl ? dockEl.getBoundingClientRect() : null
     const bar = barEl ? barEl.getBoundingClientRect() : null
+    // In the clean look the dock is tucked away and comes over the fields
+    // when called, so the fields keep the whole width.
+    const tucked = document.body.classList.contains('is-clean')
     return {
-      left: dock && dock.width ? Math.round(dock.right - view.left + 14) : 16,
+      left: !tucked && dock && dock.width ? Math.round(dock.right - view.left + 14) : 16,
       top: 14,
       right: 14,
       bottom: bar && bar.height ? Math.round(view.bottom - bar.top + 12) : 96
@@ -56,13 +62,16 @@ async function boot() {
   desktop.load(saved)
 
   const minimap = createMinimap({ root, desktop, canvas, viewport })
-  const bar = createCommandBar({ root, desktop, programs: info.programs, canvas, toast, minimap, speaker })
+  const music = createMusic({ toast })
+  speaker.onActive((talking) => (talking ? music.hold('speak') : music.release('speak')))
+  const bar = createCommandBar({ root, desktop, programs: info.programs, canvas, toast, minimap, speaker, music })
   desktop.setStationActions(() => bar.stationActions())
   barEl = root.querySelector('.w20-bar-main')
   dockEl = buildDock(root, info.programs, desktop)
   const overview = createOverview({ root, desktop })
   bar.onOverview(() => overview.toggle())
-  buildEmpty(root, info.programs, desktop, overview)
+  buildEmpty(root, info.programs, desktop, overview, music)
+  clean.attach(dockEl, () => desktop.relayout({ glide: false }))
 
   // Zooming out of a station is stepping back to see all of them.
   canvas.onZoomOut(() => overview.show())
@@ -106,6 +115,9 @@ async function boot() {
   if (window.w20.ui) {
     window.w20.ui.onGlobal((what) => {
       if (what === 'voice') bar.toggleVoice()
+      // The + key: from anywhere, the window stays where it is. Behind other
+      // programs the words are a command, never dictation into a terminal.
+      if (what === 'mic') bar.toggleVoice({ command: !document.hasFocus() })
     })
   }
 
@@ -116,7 +128,7 @@ async function boot() {
  * What an empty station shows: the things worth opening, one click each, and
  * the keys that open them. Hidden as soon as the station has a window.
  */
-function buildEmpty(root, programs, desktop, overview) {
+function buildEmpty(root, programs, desktop, overview, music) {
   const el = document.createElement('div')
   el.className = 'w20-empty'
   el.innerHTML = `
@@ -125,6 +137,7 @@ function buildEmpty(root, programs, desktop, overview) {
       <p class="w20-empty-sub">До 4 полета, по 4 прозореца във всяко. Всичко се подрежда само.</p>
       <div class="w20-empty-grid" data-role="grid"></div>
       <p class="w20-empty-keys">
+        <span><kbd>+</kbd> говори (цифровата клавиатура)</span>
         <span><kbd>F3</kbd> всички станции</span>
         <span><kbd>Ctrl+K</kbd> команди и ИИ</span>
         <span><kbd>Ctrl+Space</kbd> водещ клавиш</span>
@@ -143,10 +156,10 @@ function buildEmpty(root, programs, desktop, overview) {
       .filter(Boolean)
       .slice(0, 2)
       .map((p) => ({ icon: p.icon, label: p.title, accent: p.accent, run: () => desktop.openProgram(p) })),
-    { icon: '✺', label: 'Genesis чат', key: 'Ctrl+Shift+I', accent: '#c4b5fd', run: () => desktop.openChat() },
+    { icon: '✺', label: 'ИИ чат', key: 'Ctrl+Shift+I', accent: '#c4b5fd', run: () => desktop.openChat() },
     { icon: '◎', label: 'Браузър', key: 'Ctrl+Space B', accent: '#4caf50', run: () => desktop.openWeb() },
+    { icon: '♪', label: 'Музика', key: 'YouTube', accent: '#ff4f79', run: () => music.open() },
     { icon: '✎', label: 'Бележка', key: 'Ctrl+N', accent: '#ffd166', run: () => desktop.openNote() },
-    { icon: '▦', label: 'Всички станции', key: 'F3', accent: '#c4b5fd', run: () => overview.show() },
     { icon: '⚙', label: 'Глас и ИИ', key: 'безплатно', accent: '#9aa2b1', run: () => desktop.openSettings() }
   ].slice(0, 8)
 
@@ -169,6 +182,103 @@ function buildEmpty(root, programs, desktop, overview) {
   }
   desktop.onChange(sync)
   sync()
+}
+
+/**
+ * The window has no frame: minimise, maximise and close are ours, in the
+ * title bar, so they can tuck away with it.
+ */
+function mountFrame() {
+  const bar = document.querySelector('.w20-titlebar')
+  if (!bar || !window.w20.win) return
+  const box = document.createElement('div')
+  box.className = 'w20-winbtns'
+  box.innerHTML = `
+    <button data-win="minimize" title="Смали"><svg viewBox="0 0 12 12"><path d="M2 6.5h8v1H2z"/></svg></button>
+    <button data-win="maximize" title="Цял екран"><svg viewBox="0 0 12 12"><path d="M2.5 2.5h7v7h-7z" fill="none" stroke="currentColor"/></svg></button>
+    <button data-win="close" class="is-close" title="Затвори"><svg viewBox="0 0 12 12"><path d="M2.6 2 6 5.4 9.4 2l.6.6L6.6 6 10 9.4l-.6.6L6 6.6 2.6 10 2 9.4 5.4 6 2 2.6z"/></svg></button>
+  `
+  bar.appendChild(box)
+  box.addEventListener('click', (e) => {
+    const btn = e.target.closest('[data-win]')
+    if (btn) window.w20.win.control(btn.dataset.win)
+  })
+  window.w20.win.onState(({ maximized }) => {
+    document.body.classList.toggle('is-maximized', Boolean(maximized))
+    box.querySelector('[data-win="maximize"]').title = maximized ? 'Върни размера' : 'Цял екран'
+  })
+}
+
+/**
+ * The clean look: the title bar and the dock tuck away, and the window's top
+ * and left edges bring them back. The pointer is followed on the whole page —
+ * a drag region swallows its own mouse events, so the bar cannot tell when it
+ * is left; the page under it can.
+ */
+async function mountClean() {
+  const body = document.body
+  const top = document.createElement('div')
+  top.className = 'w20-edge w20-edge-top'
+  const left = document.createElement('div')
+  left.className = 'w20-edge w20-edge-left'
+  body.append(top, left)
+
+  let dock = null
+  let onLayout = () => {}
+  let hideTop = 0
+  let hideLeft = 0
+
+  const reveal = (cls) => {
+    clearTimeout(cls === 'show-top' ? hideTop : hideLeft)
+    body.classList.add(cls)
+  }
+  const conceal = (cls, wait = 450) => {
+    const timer = setTimeout(() => body.classList.remove(cls), wait)
+    if (cls === 'show-top') {
+      clearTimeout(hideTop)
+      hideTop = timer
+    } else {
+      clearTimeout(hideLeft)
+      hideLeft = timer
+    }
+  }
+
+  top.addEventListener('mouseenter', () => reveal('show-top'))
+  left.addEventListener('mouseenter', () => reveal('show-left'))
+  window.addEventListener('mousemove', (e) => {
+    if (!body.classList.contains('is-clean')) return
+    if (e.clientY <= 4) reveal('show-top')
+    else if (body.classList.contains('show-top') && e.clientY > 70) conceal('show-top')
+    if (e.clientX <= 4) reveal('show-left')
+    else if (body.classList.contains('show-left')) {
+      const edge = dock ? dock.getBoundingClientRect().right : 120
+      if (e.clientX > edge + 40) conceal('show-left')
+    }
+  })
+  document.documentElement.addEventListener('mouseleave', () => {
+    conceal('show-top', 700)
+    conceal('show-left', 700)
+  })
+
+  async function set(on, save) {
+    body.classList.toggle('is-clean', on)
+    if (!on) body.classList.remove('show-top', 'show-left')
+    onLayout()
+    if (save) await window.w20.settings.set({ look: { clean: on } })
+  }
+
+  const state = await window.w20.settings.get()
+  await set(!state || !state.look || state.look.clean !== false, false)
+  document.addEventListener('w20:toggle-clean', () => set(!body.classList.contains('is-clean'), true))
+
+  return {
+    attach(dockEl, layout) {
+      dock = dockEl
+      onLayout = layout
+      // A program opened from the dock: the dock has done its job.
+      if (dock) dock.addEventListener('click', () => conceal('show-left', 150))
+    }
+  }
 }
 
 /**

@@ -36,9 +36,10 @@ function createSettings(userDataDir) {
       // When the chosen service is out of free requests, try the others.
       fallback: true
     },
-    // The chat window: Genesis, or the same service as the navigation.
+    // The chat window and the voice's brain: Claude Code on the owner's
+    // subscription, Genesis, or the same service as the navigation.
     chat: {
-      provider: 'genesis', // genesis | ai
+      provider: 'claude', // claude | genesis | ai
       genesisUrl: 'http://127.0.0.1:8100',
       // The branch "Инсталирай / обнови Genesis" installs from.
       genesisRef: 'claude/token-upgrade-ipe4yg',
@@ -46,6 +47,12 @@ function createSettings(userDataDir) {
       autostart: true,
       // What is said to the station goes to Genesis, and Genesis runs it.
       voice: true
+    },
+    // Claude Code, run headless on this laptop: a fast model for the voice,
+    // a stronger one for the chat.
+    claude: {
+      voiceModel: 'haiku',
+      chatModel: 'sonnet'
     },
     // Speaking back.
     speech: {
@@ -57,12 +64,14 @@ function createSettings(userDataDir) {
     },
     // How the station looks.
     look: {
-      theme: 'dark' // dark | light | system
+      theme: 'dark', // dark | light | system
+      // The title bar and the dock tuck away; the window's edges bring them back.
+      clean: true
     },
     keys: {}
   }
 
-  const SECTIONS = ['stt', 'ai', 'chat', 'speech', 'look', 'keys']
+  const SECTIONS = ['stt', 'ai', 'chat', 'claude', 'speech', 'look', 'keys']
 
   function read() {
     let parsed = {}
@@ -131,6 +140,7 @@ function createSettings(userDataDir) {
         ready: ready(state.ai.provider, state) && (state.ai.provider !== 'custom' || Boolean(state.ai.endpoint))
       },
       chat: { ...state.chat },
+      claude: { ...state.claude },
       speech: { ...state.speech },
       look: { ...state.look },
       hasKey

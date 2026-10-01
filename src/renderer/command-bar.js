@@ -10,16 +10,17 @@
 import { createVoice } from './voice.js'
 import { toggleTheme, resolved as themeNow } from './theme.js'
 
-export function createCommandBar({ root, desktop, programs, canvas, toast, minimap, speaker }) {
+export function createCommandBar({ root, desktop, programs, canvas, toast, minimap, speaker, music }) {
   const el = document.createElement('div')
   el.className = 'w20-bar'
   el.innerHTML = `
     <div class="w20-bar-results" data-role="results" hidden></div>
     <div class="w20-bar-main">
-      <button class="w20-bar-mic" data-role="mic" title="Говори (Ctrl+Shift+Space)">◉</button>
+      <button class="w20-bar-mic" data-role="mic" title="Говори — един клик, или + на цифровата клавиатура">◉</button>
       <input class="w20-bar-input" data-role="input" placeholder="Напиши команда…" spellcheck="false" />
       <span class="w20-bar-hint">Ctrl+K</span>
       <span class="w20-bar-load" data-role="load"></span>
+      <button class="w20-bar-music" data-role="music" title="Музика — твоят YouTube"><span class="w20-bar-music-note"></span><span class="w20-eq" aria-hidden="true"><i></i><i></i><i></i></span></button>
       <button class="w20-bar-all" data-role="overview" title="Всички станции (F3)">▦</button>
       <div class="w20-bar-tabs" data-role="tabs"></div>
       <button class="w20-bar-add" data-role="add" title="Нова станция (Ctrl+Shift+N)">+</button>
@@ -33,26 +34,57 @@ export function createCommandBar({ root, desktop, programs, canvas, toast, minim
   const micBtn = el.querySelector('[data-role="mic"]')
   const loadEl = el.querySelector('[data-role="load"]')
   const addBtn = el.querySelector('[data-role="add"]')
+  const musicBtn = el.querySelector('[data-role="music"]')
+
+  if (music) {
+    musicBtn.querySelector('.w20-bar-music-note').innerHTML = music.ICON.note
+    musicBtn.addEventListener('click', () => music.toggleCard())
+    music.onChange((now) => {
+      musicBtn.classList.toggle('is-playing', now.playing)
+      musicBtn.classList.toggle('is-open', now.mode !== 'closed')
+      musicBtn.title = now.title ? `♪ ${now.title}${now.byline ? ` — ${now.byline}` : ''}` : 'Музика — твоят YouTube'
+    })
+  } else {
+    musicBtn.hidden = true
+  }
 
   addBtn.addEventListener('click', () => desktop.addWorkspace())
   let overviewHandler = null
   let editKeysHandler = null
   el.querySelector('[data-role="overview"]').addEventListener('click', () => overviewHandler && overviewHandler())
 
+  // The microphone holds the music from the moment it listens until the
+  // words are dealt with; the answer, if spoken, holds it after that.
+  let voiceWas = 'idle'
+  const holdMusic = () => music && music.hold('mic')
+  const letMusicGo = () => music && music.release('mic')
+
   const voice = createVoice({
     onState: (state) => {
       // Listening again means the station should hush, not talk over you.
       if (state === 'listening' && speaker) speaker.stop()
+      if (state === 'listening') holdMusic()
+      // Stopped with nothing to send: nothing else will let the music go.
+      if (state === 'idle' && voiceWas === 'listening') letMusicGo()
+      voiceWas = state
       el.dataset.voice = state
       micBtn.title =
-        state === 'listening' ? 'Слушам — натисни пак, за да спреш' : state === 'working' ? 'Разпознавам…' : 'Говори (Ctrl+Shift+Space)'
+        state === 'listening'
+          ? 'Слушам — като млъкнеш, се праща само (или натисни пак)'
+          : state === 'working'
+            ? 'Разпознавам…'
+            : 'Говори — един клик, или + на цифровата клавиатура'
     },
-    onTranscript: (result) => {
-      if (!result.ok) {
-        toast(result.error, { tone: 'error' })
-        return
+    onTranscript: async (result) => {
+      try {
+        if (!result.ok) {
+          toast(result.error, { tone: result.quiet ? 'warn' : 'error', timeout: result.quiet ? 3000 : undefined })
+          return
+        }
+        await handleSpoken(result.text, result.options || {})
+      } finally {
+        letMusicGo()
       }
-      handleSpoken(result.text)
     }
   })
 
@@ -166,8 +198,8 @@ export function createCommandBar({ root, desktop, programs, canvas, toast, minim
       },
       {
         id: 'ai:chat',
-        label: 'Genesis — ИИ чат',
-        hint: 'Ctrl+Shift+I — разговор, отговорът идва докато се пише',
+        label: 'ИИ чат',
+        hint: 'Ctrl+Shift+I — Claude или Genesis, отговорът идва докато се пише',
         keywords: ['genesis', 'генезис', 'чат', 'chat', 'ии', 'ai', 'разговор', 'питай', 'помощник', 'грок', 'grok', 'gemini'],
         run: () => desktop.openChat()
       },
@@ -187,6 +219,14 @@ export function createCommandBar({ root, desktop, programs, canvas, toast, minim
           const result = await window.w20.genesis.window()
           if (!result.ok) toast(`Genesis не се отвори: ${result.error || ''}`, { tone: 'warn' })
         }
+      },
+      ...musicCommands(),
+      {
+        id: 'look:clean',
+        label: document.body.classList.contains('is-clean') ? 'Покажи горната и лявата лента винаги' : 'Чист изглед — лентите се прибират',
+        hint: 'ръбът на прозореца ги показва',
+        keywords: ['чист', 'чисто', 'изглед', 'ленти', 'прибери', 'скрий', 'clean', 'док', 'заглавие'],
+        run: () => document.dispatchEvent(new CustomEvent('w20:toggle-clean'))
       },
       {
         id: 'look:theme',
@@ -369,6 +409,82 @@ export function createCommandBar({ root, desktop, programs, canvas, toast, minim
     return [...programCommands(), ...staticCommands()]
   }
 
+  /** The player, by voice or typed: the same entries either way. */
+  function musicCommands() {
+    if (!music) return []
+    const now = music.state()
+    const list = [
+      {
+        id: 'music:open',
+        label: now.mode === 'closed' ? 'Музика — твоят YouTube плейър' : 'Скрий плейъра (музиката продължава)',
+        hint: now.title ? `♪ ${now.title}` : 'YouTube Music с твоя профил',
+        keywords: ['музика', 'music', 'плейър', 'плеър', 'песни', 'youtube', 'ютуб', 'player'],
+        run: () => music.toggleCard()
+      },
+      {
+        id: 'music:toggle',
+        label: now.playing ? 'Спри музиката' : 'Пусни музиката',
+        hint: now.title || 'музика за кодене, ако нищо не е пуснато',
+        keywords: ['пауза', 'спри', 'продължи', 'музиката', 'pause', 'play'],
+        run: () => music.toggle()
+      },
+      { id: 'music:next', label: 'Следваща песен', hint: 'музика', keywords: ['следваща', 'песен', 'next', 'прескочи', 'друга'], run: () => music.next() },
+      { id: 'music:prev', label: 'Предишна песен', hint: 'музика', keywords: ['предишна', 'назад', 'песен', 'previous'], run: () => music.prev() },
+      {
+        id: 'music:vibe',
+        label: 'Музика за кодене',
+        hint: 'lofi от YouTube Music',
+        keywords: ['кодене', 'lofi', 'лофи', 'фокус', 'вайб', 'vibe', 'работа', 'спокойна'],
+        run: () => music.vibe()
+      },
+      { id: 'music:liked', label: 'Пусни харесаните ми песни', hint: 'от профила ти', keywords: ['харесани', 'любими', 'liked', 'мои'], run: () => music.liked() },
+      { id: 'music:louder', label: 'Музиката по-силно', hint: 'звук', keywords: ['по-силно', 'усили', 'силно', 'louder'], run: () => music.volume(0.15) },
+      { id: 'music:quieter', label: 'Музиката по-тихо', hint: 'звук', keywords: ['по-тихо', 'намали', 'тихо', 'quieter'], run: () => music.volume(-0.15) },
+      {
+        id: 'music:sync',
+        label: 'Вземи плейлистите ми от YouTube',
+        hint: 'синхронизиране с профила',
+        keywords: ['плейлисти', 'синхронизирай', 'sync', 'обнови', 'плейлист'],
+        run: () => music.syncPlaylists()
+      },
+      { id: 'music:wide', label: 'Разгледай YouTube Music', hint: 'голям прозорец — тук се влиза в профила', keywords: ['разгледай', 'youtube', 'влез', 'профил', 'sign in'], run: () => music.wide() }
+    ]
+    for (const p of music.playlists()) {
+      list.push({
+        id: `music:pl:${p.id}`,
+        label: `Пусни плейлиста „${p.title}“`,
+        hint: 'твой плейлист',
+        keywords: ['плейлист', 'пусни', p.title],
+        run: () => music.playPlaylist(p.id)
+      })
+    }
+    return list
+  }
+
+  /**
+   * Real work — code, files, a project — goes to Claude Code itself, in a
+   * terminal on the canvas: the user sees every step and approves what it
+   * touches. Characters the Windows shell would read as its own are dropped.
+   */
+  async function claudeTask(task) {
+    const clean = String(task || '').replace(/["&|<>^%`\r\n]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 600)
+    const program = programs.find((p) => p.id === 'claude')
+    const status = window.w20.claude ? await window.w20.claude.status() : null
+    const exe = status && status.found && /\.exe$/i.test(status.path) ? status.path : ''
+    if (!exe && !(program && program.installed)) {
+      toast('Claude Code не е намерен на този компютър.', { tone: 'warn' })
+      return
+    }
+    desktop.openTerminal({
+      title: clean ? `Claude — ${clean.slice(0, 32)}` : 'Claude Code',
+      shell: exe || program.path || program.command,
+      args: clean ? [clean] : [],
+      accent: (program && program.accent) || '#d97757',
+      programId: 'claude'
+    })
+    flash('Claude Code започна задачата')
+  }
+
   /**
    * Windows loves a path; if that's what was typed, offer to open it. A web
    * address opens here first — the whole point is that it need not leave.
@@ -460,7 +576,9 @@ export function createCommandBar({ root, desktop, programs, canvas, toast, minim
       query.length >= 2
         ? [
             { id: 'ai:ask', label: 'Попитай ИИ', hint: `„${query}“`, run: () => askAI(query, { spoken: false }) },
-            { id: 'ai:chat-ask', label: 'Питай Genesis', hint: 'в ИИ чата — дълъг отговор, с код', run: () => desktop.openChat(query) }
+            { id: 'ai:chat-ask', label: 'Питай в ИИ чата', hint: 'дълъг отговор, с код', run: () => desktop.openChat(query) },
+            { id: 'claude:task', label: 'Дай го като задача на Claude Code', hint: 'терминал, в който вижда и прави', run: () => claudeTask(query) },
+            ...(music ? [{ id: 'music:play', label: `Пусни „${query}“`, hint: 'YouTube Music', run: () => music.play(query) }] : [])
           ]
         : []
 
@@ -537,8 +655,11 @@ export function createCommandBar({ root, desktop, programs, canvas, toast, minim
    * into a focused agent it is a prompt; said to the desktop it is an action.
    * Guessing wrong either way is worse than the rule being explicit.
    */
-  function handleSpoken(text) {
-    const target = desktop.focusedTerminal()
+  async function handleSpoken(text, { command = false } = {}) {
+    // From the global key with the station behind other programs, the words
+    // are always a command: typing into a terminal nobody is looking at is
+    // a surprise.
+    const target = command ? null : desktop.focusedTerminal()
     if (target && target.content && target.content.send) {
       target.content.send(text)
       toast(`Продиктувано в „${target.win.node.title}“: ${text}`, { timeout: 5000 })
@@ -558,7 +679,7 @@ export function createCommandBar({ root, desktop, programs, canvas, toast, minim
       return
     }
 
-    askAI(text, { spoken: true })
+    await askAI(text, { spoken: true })
   }
 
   /**
@@ -579,6 +700,20 @@ export function createCommandBar({ root, desktop, programs, canvas, toast, minim
       label: 'Търси в интернет',
       takesArg: true,
       run: (arg) => desktop.openWeb(`https://duckduckgo.com/?q=${encodeURIComponent(arg || '')}`)
+    })
+    if (music) {
+      commands.push({
+        id: 'music:play',
+        label: 'Пусни песен, изпълнител или настроение в YouTube Music',
+        takesArg: true,
+        run: (arg) => music.play(arg)
+      })
+    }
+    commands.push({
+      id: 'claude:task',
+      label: 'Истинска работа: код, файлове, проекти — Claude Code я прави в нов терминал, потребителят одобрява',
+      takesArg: true,
+      run: (arg) => claudeTask(arg)
     })
     // Typed, never run: Enter stays the user's, as with the chat's button.
     const terminal = desktop.lastTerminal()
@@ -619,7 +754,9 @@ export function createCommandBar({ root, desktop, programs, canvas, toast, minim
   async function askAI(text, { spoken }) {
     if (asking) return
     const state = await window.w20.settings.get()
-    const genesisLeads = Boolean(state && state.chat.provider === 'genesis' && state.chat.voice !== false)
+    const brain = state && state.chat.voice !== false && ['claude', 'genesis'].includes(state.chat.provider) ? state.chat.provider : ''
+    const brainName = brain === 'claude' ? 'Claude' : 'Genesis'
+    const genesisLeads = Boolean(brain)
     if (!state || (!state.ai.ready && !genesisLeads)) {
       input.value = text
       toast('ИИ не е настроен. В Настройки въведи безплатен ключ (Groq или Gemini) или избери Ollama.', {
@@ -635,8 +772,8 @@ export function createCommandBar({ root, desktop, programs, canvas, toast, minim
 
     asking = true
     el.dataset.voice = 'thinking'
-    flash(genesisLeads ? 'Genesis мисли…' : 'Мисля…')
-    if (genesisLeads) toast(`Genesis: „${text}“`, { timeout: 4000 })
+    flash(genesisLeads ? `${brainName} мисли…` : 'Мисля…')
+    if (genesisLeads) toast(`${brainName}: „${text}“`, { timeout: 4000 })
     let result
     try {
       result = await window.w20.ai.navigate({
@@ -653,7 +790,7 @@ export function createCommandBar({ root, desktop, programs, canvas, toast, minim
     if (!result || !result.ok) {
       input.value = text
       toast((result && result.error) || 'ИИ не отговори.', { tone: 'error' })
-      if (spoken && speaker) speaker.say(genesisLeads ? 'Genesis не отговори.' : 'ИИ не отговори.')
+      if (spoken && speaker) speaker.say(genesisLeads ? `${brainName} не отговори.` : 'ИИ не отговори.')
       return
     }
 
@@ -743,7 +880,7 @@ export function createCommandBar({ root, desktop, programs, canvas, toast, minim
       input.select()
       refresh()
     },
-    toggleVoice: () => voice.toggle(),
+    toggleVoice: (opts) => voice.toggle(opts),
     onOverview: (fn) => {
       overviewHandler = fn
     },

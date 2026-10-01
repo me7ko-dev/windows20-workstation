@@ -16,6 +16,13 @@ const { catalog: providerCatalog } = require('./providers')
 const { createKeybindings } = require('./keybindings')
 const genesis = require('./genesis')
 const webLookup = require('./web-lookup')
+const claude = require('./claude')
+
+// Renamed to AI Workstation on 01.10.2026. Settings, keys and stations stay in
+// the folder the old name made, so the new name loses nothing.
+// W20_USER_DATA points a second, test copy somewhere else.
+app.setName('AI Workstation')
+app.setPath('userData', process.env.W20_USER_DATA || path.join(app.getPath('appData'), 'Windows 20 Workstation'))
 
 let store = null
 let settings = null
@@ -85,15 +92,11 @@ function createWindow(stationId) {
     minHeight: 520,
     show: false,
     backgroundColor: '#0b0d12',
-    title: `Windows 20 Workstation — ${id}`,
-    // A custom title bar, because the canvas is the whole surface — but the
-    // Windows caption buttons stay native so snap layouts keep working.
-    titleBarStyle: 'hidden',
-    titleBarOverlay: {
-      color: '#0b0d12',
-      symbolColor: '#eef1f7',
-      height: 38
-    },
+    title: `AI Workstation — ${id}`,
+    // No frame at all: the title bar and its buttons are ours, so they can
+    // tuck away and leave the station clean. Dragging and double-click still
+    // work through the bar's drag region; the edges still resize.
+    frame: false,
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
@@ -112,6 +115,14 @@ function createWindow(stationId) {
   store.remember(id)
 
   win.once('ready-to-show', () => win.show())
+  const sendFrame = () => {
+    if (!win.isDestroyed()) win.webContents.send('win:state', { maximized: win.isMaximized() })
+  }
+  win.on('maximize', sendFrame)
+  win.on('unmaximize', sendFrame)
+  win.webContents.on('did-finish-load', sendFrame)
+  // A test run: a picture of the page, then quit. Nothing happens without it.
+  if (process.env.W20_SHOT) shootAndQuit(win)
   // The global keys go to the station last in front.
   lastFocused = win
   win.on('focus', () => {
@@ -133,6 +144,8 @@ function createWindow(stationId) {
     webPreferences.nodeIntegration = false
     webPreferences.contextIsolation = true
     params.allowpopups = false
+    // The music player plays when asked by voice, with no click in the page.
+    if (params.partition === MUSIC_PARTITION) webPreferences.autoplayPolicy = 'no-user-gesture-required'
   })
 
   // The canvas is our own page, but it must not be able to grant itself
@@ -178,7 +191,38 @@ function createWindow(stationId) {
   return win
 }
 
+/** The music player's own session: its YouTube login, kept between runs. */
+const MUSIC_PARTITION = 'persist:music'
+
+function guardMusicSession() {
+  const { session } = require('electron')
+  const music = session.fromPartition(MUSIC_PARTITION)
+  // A music page needs nothing from this machine — no microphone, no camera,
+  // no notifications. Full screen for a video is the one thing it may ask.
+  music.setPermissionRequestHandler((_contents, permission, callback) => callback(permission === 'fullscreen'))
+}
+
+/** W20_SHOT=file.png: wait, optionally run W20_SHOT_EVAL in the page, save a picture, quit. */
+function shootAndQuit(win) {
+  win.webContents.once('did-finish-load', () => {
+    setTimeout(async () => {
+      try {
+        if (process.env.W20_SHOT_EVAL) {
+          await win.webContents.executeJavaScript(process.env.W20_SHOT_EVAL, true)
+          await new Promise((resolve) => setTimeout(resolve, Number(process.env.W20_SHOT_WAIT || 2500)))
+        }
+        const image = await win.webContents.capturePage()
+        await fsp.writeFile(process.env.W20_SHOT, image.toPNG())
+      } catch (err) {
+        logCrash(`shot failed: ${err.message}`)
+      }
+      app.quit()
+    }, Number(process.env.W20_SHOT_DELAY || 3500))
+  })
+}
+
 app.whenReady().then(() => {
+  guardMusicSession()
   // No application menu. Its accelerators — Ctrl+W closing the whole window,
   // Ctrl+R reloading it, Ctrl+0/+/- zooming the page — would fire over the
   // station's own keys. Text fields still copy and paste on their own.
@@ -543,6 +587,13 @@ ipcMain.handle('ai:navigate', async (_e, request) => {
   // Genesis at the wheel when it is the brain and the voice is given to it;
   // the navigation service is the way back when Genesis cannot answer.
   const chatConfig = settings.read().chat
+  if (chatConfig.provider === 'claude' && chatConfig.voice !== false) {
+    const result = await claude.command(request || {}, settings.read().claude)
+    if (result.ok) return result
+    if (!settings.safe().ai.ready) return result
+    const fallback = await ai.navigate(request || {}, settings)
+    return fallback.ok ? { ...fallback, fellBack: true, note: result.error } : { ok: false, error: `${result.error} · ${fallback.error}` }
+  }
   if (chatConfig.provider === 'genesis' && chatConfig.voice !== false) {
     const own = await genesis.ensure({ url: chatConfig.genesisUrl, autostart: chatConfig.autostart !== false, env: agentEnv(settings) })
     const result = own.ok ? await ai.command(request || {}, { url: chatConfig.genesisUrl }) : own
@@ -578,6 +629,20 @@ ipcMain.handle('ai:chat', async (e, request) => {
     // Genesis is the chat's brain unless Settings say otherwise; started here
     // if it is not running yet, with the same free keys the agents get.
     const chatConfig = settings.read().chat
+    const onDelta = (delta) => {
+      if (!sender.isDestroyed()) sender.send('ai:delta', { requestId, delta })
+    }
+    // Claude Code on the owner's subscription; the free services after it
+    // only if it fails before writing a word and falling back is on.
+    if (chatConfig.provider === 'claude') {
+      if (!sender.isDestroyed()) sender.send('ai:delta', { requestId, status: 'claude' })
+      const result = await claude.chat(request || {}, settings.read().claude, onDelta, controller.signal)
+      if (result.ok || controller.signal.aborted) return result
+      const state = settings.read()
+      if (state.ai.fallback === false || !settings.safe().ai.ready) return result
+      const fallback = await ai.chat(request || {}, settings, onDelta, controller.signal)
+      return fallback.ok ? { ...fallback, fellBack: true, note: result.error } : { ok: false, error: `${result.error} · ${fallback.error}` }
+    }
     let own = null
     if (chatConfig.provider === 'genesis') {
       if (!sender.isDestroyed()) sender.send('ai:delta', { requestId, status: 'genesis' })
@@ -601,6 +666,8 @@ ipcMain.on('ai:stop', (_e, requestId) => {
   const controller = chats.get(String(requestId))
   if (controller) controller.abort()
 })
+
+ipcMain.handle('claude:status', () => claude.status())
 
 /* --------------------------------------------------------------- Genesis */
 
@@ -647,14 +714,24 @@ ipcMain.on('ui:theme', (e, mode) => {
     if (win.isDestroyed()) continue
     try {
       win.setBackgroundColor(colors.color)
-      // Only Windows (and a hidden title bar) draws an overlay to recolour.
-      if (process.platform === 'win32') win.setTitleBarOverlay({ ...colors, height: 38 })
     } catch {
-      // no overlay on this platform
+      // a window on its way out
     }
     // The other stations follow the one where it was changed.
     if (station && win !== station.win && settings) win.webContents.send('ui:theme', settings.read().look.theme)
   }
+})
+
+/** Our own minimise / maximise / close, since the window has no frame. */
+ipcMain.on('win:control', (e, action) => {
+  const station = stationOf(e)
+  if (!station || station.win.isDestroyed()) return
+  const { win } = station
+  if (action === 'minimize') win.minimize()
+  else if (action === 'maximize') {
+    if (win.isMaximized()) win.unmaximize()
+    else win.maximize()
+  } else if (action === 'close') win.close()
 })
 
 /* -------------------------------------------------------- the keys file */
@@ -695,6 +772,12 @@ function globalKey(what) {
   const win = lastFocused && !lastFocused.isDestroyed() ? lastFocused : (ordered()[0] || {}).win
   if (!win) {
     createWindow()
+    return
+  }
+  // One key for the microphone, from anywhere: the station listens where it
+  // is, without jumping in front of whatever the user is doing.
+  if (what === 'mic') {
+    win.webContents.send('ui:global', 'mic')
     return
   }
   // The same key hides it again, when it is already the window in front.

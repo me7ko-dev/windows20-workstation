@@ -56,6 +56,13 @@ function extractActions(text) {
 
 export function mountChat(win, { messages = [], onChange, speaker, sendToTerminal, openSettings, station } = {}) {
   const history = messages.filter((m) => m && typeof m.content === 'string').slice(-MAX_SAVED)
+  // Who answers, by name: read once, and the empty view says it again.
+  let brainName = 'Claude'
+  window.w20.settings.get().then((state) => {
+    const p = state && state.chat ? state.chat.provider : 'claude'
+    brainName = p === 'genesis' ? 'Genesis' : p === 'claude' ? 'Claude' : 'ИИ'
+    if (!history.length) redraw()
+  })
 
   const wrap = document.createElement('div')
   wrap.className = 'w20-chat'
@@ -183,7 +190,8 @@ export function mountChat(win, { messages = [], onChange, speaker, sendToTermina
   function empty() {
     const el = document.createElement('div')
     el.className = 'w20-chat-empty'
-    el.innerHTML = `<b>✺</b><p><strong>Genesis</strong> — твоят агент. Питай каквото искаш, на български.</p>`
+    el.innerHTML = `<b>✺</b><p><strong></strong> Питай каквото искаш, на български.</p>`
+    el.querySelector('strong').textContent = brainName === 'Claude' ? 'Claude — с твоя абонамент.' : `${brainName} — твоят агент.`
     const tips = ['Как да видя кой процес държи порт 3000?', 'Обясни ми какво прави git rebase', 'Напиши PowerShell скрипт, който чисти temp']
     for (const tip of tips) {
       const b = document.createElement('button')
@@ -349,7 +357,9 @@ export function mountChat(win, { messages = [], onChange, speaker, sendToTermina
     if (!busy || busy.requestId !== requestId) return
     if (!delta) {
       // Before the first word: say who is thinking.
-      if (status === 'genesis' && !busy.answer.content) busy.view.body.textContent = 'Genesis мисли…'
+      if ((status === 'genesis' || status === 'claude') && !busy.answer.content) {
+        busy.view.body.textContent = `${status === 'claude' ? 'Claude' : 'Genesis'} мисли…`
+      }
       return
     }
     const stick = nearBottom()

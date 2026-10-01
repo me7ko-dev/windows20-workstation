@@ -405,7 +405,13 @@ body.is-booting .w20-shell {
 
 .w20-term .xterm-viewport {
   background: transparent !important;
-  scrollbar-width: thin;
+  /* xterm keeps a scroll bar always on, which reads as a thin white strip
+     down every terminal. The wheel and Shift+PageUp still scroll. */
+  scrollbar-width: none;
+}
+
+.w20-term .xterm-viewport::-webkit-scrollbar {
+  display: none;
 }
 
 /* ---------------------------------------------------------------- note */
@@ -2074,4 +2080,567 @@ body.is-fields .w20-dock-item {
 .w20-check[hidden],
 .w20-field[hidden] {
   display: none;
+}
+
+/* ------------------------------------------------- window buttons (no frame) */
+
+.w20-winbtns {
+  margin-left: auto;
+  display: flex;
+  height: 100%;
+  margin-right: -14px;
+  -webkit-app-region: no-drag;
+}
+
+.w20-winbtns button {
+  width: 46px;
+  height: 100%;
+  display: grid;
+  place-items: center;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  cursor: pointer;
+}
+
+.w20-winbtns svg {
+  width: 12px;
+  height: 12px;
+  fill: currentColor;
+}
+
+.w20-winbtns button:hover {
+  background: rgb(var(--ink) / 0.1);
+}
+
+.w20-winbtns button.is-close:hover {
+  background: #e81123;
+  color: #fff;
+}
+
+/* ------------------------------------------------------------ clean look */
+
+/* The title bar and the dock tuck away; the window's top and left edges
+   bring them back. The canvas takes the whole window meanwhile. */
+body.is-clean .w20-shell {
+  inset: 0;
+}
+
+.w20-titlebar,
+.w20-dock {
+  transition: transform 200ms cubic-bezier(0.2, 0.8, 0.3, 1), box-shadow 200ms ease;
+}
+
+body.is-clean .w20-titlebar {
+  transform: translateY(-100%);
+}
+
+body.is-clean.show-top .w20-titlebar {
+  transform: none;
+  box-shadow: 0 12px 34px rgba(0, 0, 0, 0.35);
+}
+
+body.is-clean .w20-dock {
+  transform: translateX(calc(-100% - 30px));
+  z-index: 190;
+}
+
+body.is-clean.show-left .w20-dock {
+  transform: none;
+}
+
+/* Both out at once: the dock starts below the title bar, not under it. */
+body.is-clean.show-top .w20-dock {
+  top: calc(var(--titlebar-h) + 10px);
+}
+
+.w20-edge {
+  position: fixed;
+  z-index: 260;
+  display: none;
+}
+
+body.is-clean .w20-edge {
+  display: block;
+}
+
+.w20-edge-top {
+  inset: 0 0 auto 0;
+  height: 5px;
+}
+
+.w20-edge-left {
+  inset: 0 auto 0 0;
+  width: 5px;
+}
+
+body.is-clean.show-top .w20-edge-top,
+body.is-clean.show-left .w20-edge-left {
+  pointer-events: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .w20-titlebar,
+  .w20-dock {
+    transition: none;
+  }
+}
+
+/* -------------------------------------------------------- music in the bar */
+
+.w20-bar-music {
+  position: relative;
+  width: 26px;
+  height: 26px;
+  flex-shrink: 0;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.w20-bar-music:hover,
+.w20-bar-music.is-open {
+  color: #ff4f79;
+  border-color: #ff4f79;
+}
+
+.w20-bar-music svg {
+  width: 14px;
+  height: 14px;
+  fill: currentColor;
+}
+
+.w20-eq {
+  display: none;
+  align-items: flex-end;
+  gap: 2px;
+  height: 12px;
+}
+
+.w20-eq i {
+  width: 3px;
+  border-radius: 1px;
+  background: #ff4f79;
+  animation: w20-eq 0.9s ease-in-out infinite;
+}
+
+.w20-eq i:nth-child(2) {
+  animation-delay: -0.3s;
+}
+
+.w20-eq i:nth-child(3) {
+  animation-delay: -0.6s;
+}
+
+@keyframes w20-eq {
+  0%, 100% { height: 3px; }
+  50% { height: 12px; }
+}
+
+.w20-bar-music.is-playing {
+  border-color: #ff4f79;
+  background: rgba(255, 79, 121, 0.12);
+}
+
+.w20-bar-music.is-playing .w20-bar-music-note {
+  display: none;
+}
+
+.w20-bar-music.is-playing .w20-eq {
+  display: flex;
+}
+
+/* ------------------------------------------------------------ the player */
+
+.w20-music {
+  --music: #ff4f79;
+}
+
+.w20-music-card {
+  position: fixed;
+  right: 24px;
+  bottom: 104px;
+  width: 348px;
+  z-index: 150;
+  display: grid;
+  gap: 14px;
+  padding: 16px;
+  border-radius: 22px;
+  background: var(--surface-strong);
+  border: 1px solid var(--border-strong);
+  box-shadow: 0 30px 80px rgba(0, 0, 0, 0.5);
+  overflow: hidden;
+  isolation: isolate;
+  color: var(--text);
+  user-select: none;
+  animation: w20-music-in 220ms cubic-bezier(0.2, 0.8, 0.3, 1);
+}
+
+@keyframes w20-music-in {
+  from {
+    opacity: 0;
+    transform: translateY(12px) scale(0.98);
+  }
+}
+
+.w20-music[data-mode="closed"] .w20-music-card {
+  display: none;
+}
+
+/* The cover, blown up and blurred behind the card: each song tints it. */
+.w20-music-backdrop {
+  position: absolute;
+  inset: -60px;
+  z-index: -1;
+  background-position: center;
+  background-size: cover;
+  filter: blur(46px) saturate(1.5);
+  opacity: 0.42;
+}
+
+.w20-music-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.w20-music-brand {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.w20-music-brand svg {
+  width: 14px;
+  height: 14px;
+  fill: var(--music);
+}
+
+.w20-music-who {
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-right: auto;
+}
+
+.w20-music-icon {
+  width: 28px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 8px;
+  background: rgb(var(--ink) / 0.06);
+  color: var(--text);
+  cursor: pointer;
+}
+
+.w20-music-icon:hover {
+  background: rgb(var(--ink) / 0.14);
+}
+
+.w20-music-icon svg {
+  width: 14px;
+  height: 14px;
+  fill: currentColor;
+}
+
+.w20-music-now {
+  display: grid;
+  grid-template-columns: 76px minmax(0, 1fr);
+  gap: 14px;
+  align-items: center;
+}
+
+.w20-music-art {
+  width: 76px;
+  height: 76px;
+  border-radius: 14px;
+  overflow: hidden;
+  display: grid;
+  place-items: center;
+  background: linear-gradient(140deg, #ff4f79, #7c5cff);
+  box-shadow: 0 10px 26px rgba(0, 0, 0, 0.35);
+}
+
+.w20-music-art img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.w20-music-art span svg {
+  width: 30px;
+  height: 30px;
+  fill: rgba(255, 255, 255, 0.92);
+}
+
+.w20-music-meta {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.w20-music-meta b {
+  font-size: 15.5px;
+  line-height: 1.25;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.w20-music-meta span {
+  font-size: 12.5px;
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.w20-music-progress {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: 10px;
+  align-items: center;
+  font-size: 11px;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.w20-music-track {
+  position: relative;
+  height: 14px;
+  display: flex;
+  align-items: center;
+  cursor: pointer;
+  border-radius: 4px;
+  background: linear-gradient(rgb(var(--ink) / 0.14), rgb(var(--ink) / 0.14)) center / 100% 4px no-repeat;
+}
+
+.w20-music-track i {
+  display: block;
+  height: 4px;
+  width: 0;
+  border-radius: 4px;
+  background: var(--music);
+  box-shadow: 0 0 12px rgba(255, 79, 121, 0.6);
+  transition: width 900ms linear;
+}
+
+.w20-music-controls {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 18px;
+}
+
+.w20-music-ctl {
+  width: 40px;
+  height: 40px;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--text);
+  cursor: pointer;
+}
+
+.w20-music-ctl:hover {
+  background: rgb(var(--ink) / 0.1);
+}
+
+.w20-music-ctl svg {
+  width: 22px;
+  height: 22px;
+  fill: currentColor;
+}
+
+.w20-music-ctl.is-main {
+  width: 54px;
+  height: 54px;
+  background: var(--music);
+  color: #fff;
+  box-shadow: 0 10px 28px rgba(255, 79, 121, 0.45);
+}
+
+.w20-music-ctl.is-main:hover {
+  background: #ff3768;
+}
+
+.w20-music-ctl.is-main svg {
+  width: 26px;
+  height: 26px;
+}
+
+.w20-music-vol {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--text-muted);
+}
+
+.w20-music-vol svg {
+  width: 16px;
+  height: 16px;
+  fill: currentColor;
+  flex-shrink: 0;
+}
+
+.w20-music-vol input {
+  flex: 1;
+  accent-color: var(--music);
+}
+
+.w20-music-search {
+  display: flex;
+  gap: 6px;
+}
+
+.w20-music-search input {
+  flex: 1;
+  min-width: 0;
+  padding: 9px 12px;
+  border-radius: 12px;
+  border: 1px solid var(--border-strong);
+  background: rgb(var(--ink) / 0.05);
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+  outline: none;
+  user-select: text;
+}
+
+.w20-music-search input:focus {
+  border-color: var(--music);
+}
+
+.w20-music-search button {
+  padding: 0 14px;
+  border: 0;
+  border-radius: 12px;
+  background: rgb(var(--ink) / 0.1);
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.w20-music-search button:hover {
+  background: var(--music);
+  color: #fff;
+}
+
+.w20-music-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  max-height: 112px;
+  overflow-y: auto;
+  scrollbar-width: none;
+}
+
+.w20-music-chip {
+  padding: 6px 11px;
+  border-radius: 999px;
+  border: 1px solid var(--border-strong);
+  background: rgb(var(--ink) / 0.05);
+  color: var(--text);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  max-width: 100%;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.w20-music-chip:hover {
+  border-color: var(--music);
+}
+
+.w20-music-chip.is-lead {
+  background: var(--music);
+  border-color: var(--music);
+  color: #fff;
+}
+
+.w20-music-chip.is-quiet {
+  border-style: dashed;
+  color: var(--text-muted);
+}
+
+.w20-music-status {
+  margin: -4px 0 0;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.w20-music-status:empty {
+  display: none;
+}
+
+.w20-music-card button:focus-visible,
+.w20-music-card input:focus-visible {
+  outline: 2px solid var(--music);
+  outline-offset: 2px;
+}
+
+/* The page itself. Off-screen — never display: none, which may stop it — until
+   the player is opened wide; then it fills the space beside the card. */
+.w20-music-browser,
+.w20-music-probe {
+  position: fixed;
+  left: -12000px;
+  top: 0;
+  width: 1100px;
+  height: 760px;
+  border: 0;
+}
+
+.w20-music-browser webview {
+  display: flex;
+  width: 100%;
+  height: 100%;
+  border: 0;
+}
+
+.w20-music[data-mode="full"] .w20-music-card {
+  left: 24px;
+  right: auto;
+  top: 24px;
+  bottom: 104px;
+  align-content: start;
+  overflow-y: auto;
+  scrollbar-width: none;
+}
+
+.w20-music[data-mode="full"] .w20-music-browser {
+  left: 388px;
+  right: 24px;
+  top: 24px;
+  bottom: 104px;
+  width: auto;
+  height: auto;
+  z-index: 150;
+  border-radius: 18px;
+  overflow: hidden;
+  border: 1px solid var(--border-strong);
+  box-shadow: 0 30px 80px rgba(0, 0, 0, 0.5);
+  background: #030303;
+}
+
+/* Listening or answering: the music waits, and the card says so. */
+.w20-music.is-held .w20-music-ctl.is-main {
+  animation: w20-think 1.1s ease-in-out infinite;
 }

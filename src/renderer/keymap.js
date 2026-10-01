@@ -314,7 +314,7 @@ export function createKeymap(ctx) {
       group: 'Лента, глас, ИИ',
       id: 'bar.voice',
       keys: ['Ctrl+Shift+Space'],
-      label: 'Говори — команда или диктовка в терминала',
+      label: 'Говори — команда или диктовка в терминала (или само + на цифровата клавиатура)',
       run: () => bar.toggleVoice()
     },
     {
@@ -626,7 +626,7 @@ export function createKeymap(ctx) {
     html += `</section>`
     const globals = Object.entries(globalKeys).filter(([, k]) => k)
     if (globals.length) {
-      const what = { show: 'покажи / скрий станцията', voice: 'покажи и слушай' }
+      const what = { show: 'покажи / скрий станцията', voice: 'покажи и слушай', mic: 'говори — един бутон, праща се само' }
       html += `<section><h3>Отвсякъде в Windows</h3>`
       for (const [name, k] of globals) {
         html += `<div class="w20-sheet-row"><span>${what[name] || name}</span><span><kbd>${k.replace('Super', 'Win')}</kbd></span></div>`

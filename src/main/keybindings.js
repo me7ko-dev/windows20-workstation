@@ -18,12 +18,16 @@ const path = require('path')
 
 const GLOBAL_DEFAULTS = {
   show: 'Ctrl+Alt+W',
-  voice: 'Ctrl+Alt+G'
+  voice: 'Ctrl+Alt+G',
+  // The + on the number pad: one key to talk, from anywhere. The station
+  // stops listening by itself when you stop speaking.
+  mic: 'numadd'
 }
 
 const GLOBAL_LABELS = {
   show: 'Покажи / скрий станцията отвсякъде в Windows',
-  voice: 'Покажи станцията и слушай глас'
+  voice: 'Покажи станцията и слушай глас',
+  mic: 'Микрофон с един бутон — говориш, а като млъкнеш, се праща само'
 }
 
 function lenientParse(text) {
@@ -110,7 +114,7 @@ function createKeybindings(userDataDir) {
       .slice(0, 200)
     const lines = [
       '{',
-      '  // Свои клавиши за Windows 20 Workstation.',
+      '  // Свои клавиши за AI Workstation.',
       '  // Смени комбинацията, запази файла — станцията я взима веднага, без рестарт.',
       '  // [] изключва клавиш. Примери: "Ctrl+Shift+T", "Alt+Left", "F4", "Ctrl+Alt+1".',
       '  // Редове, които изтриеш, се връщат към подразбирането.',

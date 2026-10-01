@@ -75,6 +75,21 @@ contextBridge.exposeInMainWorld('w20', {
 
   providers: () => ipcRenderer.invoke('providers:list'),
 
+  claude: {
+    /** Whether Claude Code is on this machine — never its login. */
+    status: () => ipcRenderer.invoke('claude:status')
+  },
+
+  win: {
+    /** minimize | maximize | close — the window has no frame of its own. */
+    control: (action) => ipcRenderer.send('win:control', action),
+    onState: (handler) => {
+      const listener = (_e, payload) => handler(payload)
+      ipcRenderer.on('win:state', listener)
+      return () => ipcRenderer.removeListener('win:state', listener)
+    }
+  },
+
   genesis: {
     status: () => ipcRenderer.invoke('genesis:status'),
     /** { shell, args, ref } — the renderer opens it in a terminal window. */

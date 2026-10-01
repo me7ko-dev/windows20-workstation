@@ -795,6 +795,8 @@ async function main() {
     return JSON.stringify(await window.w20.settings.set({
       stt: { provider: 'custom', endpoint: 'http://127.0.0.1:${AI_PORT}/v1', model: '' },
       ai: { provider: 'custom', endpoint: 'http://127.0.0.1:${AI_PORT}/v1', model: 'проба' },
+      // The navigation service on its own here; Claude Code is checked below.
+      chat: { provider: 'ai' },
       speech: { engine: 'off' },
       keys: { groq: '${secret}' }
     }))`)
@@ -827,6 +829,13 @@ async function main() {
   const waiting = await run(`return document.querySelector('.w20-bar-input').value`)
   expect('необратимото чака Enter', tabsAfter === tabsBefore && waiting.startsWith('Затвори станция'), waiting)
   await run(`document.querySelector('.w20-bar-input').value = ''; document.querySelector('.w20-bar-input').blur(); return true`)
+
+  // Claude Code as the brain: when it cannot answer (here spawn is a stub),
+  // the navigation service does, and nothing throws on the way.
+  await run(`await window.w20.settings.set({ chat: { provider: 'claude' } }); return true`)
+  const viaClaude = await run(`return await window.w20.ai.navigate({ text: 'нова бележка', commands: [{ id: 'new:note', label: 'Нова бележка' }] })`)
+  expect('без Claude Code отговаря резервната услуга', viaClaude && viaClaude.ok && viaClaude.fellBack === true, JSON.stringify(viaClaude).slice(0, 200))
+  await run(`await window.w20.settings.set({ chat: { provider: 'ai' } }); return true`)
 
   did('ИИ: бележка, измислена команда, необратима команда')
 
@@ -880,7 +889,8 @@ async function main() {
   const ownText = await run(`return document.querySelector('.w20-chat-log').innerText`)
   expect('ИИ чатът е Genesis', ownFoot.startsWith('genesis') && ownText.includes('Аз съм Genesis'), ownFoot)
   const sentToGenesis = genesisRequests.pop() || ''
-  expect('на Genesis не се праща чужд system prompt', !sentToGenesis.includes('"role":"system"') && sentToGenesis.includes('кой си ти'))
+  // Genesis gets what is on the station (since 23.09), never our chat prompt.
+  expect('на Genesis не се праща чужд system prompt', !sentToGenesis.includes('ИИ помощникът') && sentToGenesis.includes('кой си ти'))
   // Install / upgrade: from the branch with the upgrade, through its own
   // installer on Windows, plus the API server; in a terminal on the canvas.
   const installs = spawned.length
@@ -896,7 +906,7 @@ async function main() {
   await sleep(300)
   await run(`window.__t.key('i', { shift: true }); return true`)
   await sleep(300)
-  expect('прозорецът се казва Genesis', (await run(`return document.querySelector('.w20-window--chat .w20-window-title').textContent`)).includes('Genesis'))
+  expect('прозорецът се казва ИИ чат', (await run(`return document.querySelector('.w20-window--chat .w20-window-title').textContent`)).includes('ИИ чат'))
   did('чат: отваряне, стрийминг, код към терминала')
   await drain('чатът')
 

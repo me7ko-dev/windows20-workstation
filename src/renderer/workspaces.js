@@ -137,6 +137,9 @@ export function createDesktop({ plane, canvas, programs, home, speaker, insets, 
 
   function snapshot() {
     return {
+      // Stations are added by hand now; an old save with ten ready-made empty
+      // ones is trimmed once, then never again.
+      byHand: true,
       activeIndex,
       workspaces: workspaces.map((ws) => ({
         ...ws,
@@ -994,7 +997,7 @@ export function createDesktop({ plane, canvas, programs, home, speaker, insets, 
       if (question && entry.content.ask) entry.content.ask(question)
       return entry
     }
-    const made = addNode({ type: 'chat', title: 'Genesis', messages: [], accent: '#c4b5fd' })
+    const made = addNode({ type: 'chat', title: 'ИИ чат', messages: [], accent: '#c4b5fd' })
     if (made && question && made.content && made.content.ask) made.content.ask(question)
     return made
   }
@@ -1142,10 +1145,16 @@ export function createDesktop({ plane, canvas, programs, home, speaker, insets, 
 
   function load(state) {
     workspaces.length = 0
-    const saved = state && Array.isArray(state.workspaces) && state.workspaces.length ? state.workspaces : null
-    // Ten to start with: the overview is the point, and an empty station
-    // costs nothing but its name and its picture.
-    const count = saved ? saved.length : 10
+    let saved = state && Array.isArray(state.workspaces) && state.workspaces.length ? state.workspaces : null
+    // One to start with; the user adds the rest with + or F3. A save from
+    // when there were ten ready-made ones keeps only those with something in
+    // them (always at least the first).
+    if (saved && !state.byHand) {
+      const kept = saved.filter((ws) => Array.isArray(ws.nodes) && ws.nodes.length)
+      saved = kept.length ? kept : [saved[0]]
+      state.activeIndex = 0
+    }
+    const count = saved ? saved.length : 1
     for (let i = 0; i < count; i += 1) {
       const base = blankWorkspace()
       base.picture = freshPicture()

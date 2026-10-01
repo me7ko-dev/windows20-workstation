@@ -65,14 +65,31 @@ export function mountSettings(win, { speaker, onSaved, openWeb } = {}) {
       <span>Свърши ли безплатният лимит — пробвай другите услуги с ключ и Ollama</span>
     </label>
 
-    <h3 class="w20-settings-section">ИИ чат — Genesis</h3>
+    <h3 class="w20-settings-section">ИИ мозък — чатът и гласът</h3>
     <label class="w20-field">
-      <span>Кой отговаря в чата</span>
+      <span>Кой отговаря и управлява станцията</span>
       <select data-role="chat-provider">
+        <option value="claude">Claude Code — твоят абонамент (само на този лаптоп)</option>
         <option value="genesis">Genesis — твоят агент</option>
         <option value="ai">Същата услуга като навигацията</option>
       </select>
     </label>
+    <label class="w20-field" data-role="claude-voice-row">
+      <span>Модел на Claude за гласа</span>
+      <select data-role="claude-voice">
+        <option value="haiku">Haiku — най-бърз (препоръчан)</option>
+        <option value="sonnet">Sonnet — по-умен, по-бавен</option>
+      </select>
+    </label>
+    <label class="w20-field" data-role="claude-chat-row">
+      <span>Модел на Claude за чата</span>
+      <select data-role="claude-chat">
+        <option value="sonnet">Sonnet — бърз и умен (препоръчан)</option>
+        <option value="opus">Opus — най-силен, харчи повече от лимита</option>
+        <option value="haiku">Haiku — най-бърз</option>
+      </select>
+    </label>
+    <p class="w20-settings-hint" data-role="claude-status"></p>
     <label class="w20-field" data-role="chat-url-row">
       <span>Адрес на Genesis</span>
       <input type="text" data-role="chat-url" placeholder="http://127.0.0.1:8100" spellcheck="false" />
@@ -83,7 +100,7 @@ export function mountSettings(win, { speaker, onSaved, openWeb } = {}) {
     </label>
     <label class="w20-check" data-role="chat-voice-row">
       <input type="checkbox" data-role="chat-voice" />
-      <span>Гласът говори с Genesis — той решава какво да направи в станцията (простите команди остават мигновени)</span>
+      <span>Гласът говори с мозъка (Claude или Genesis) — той решава какво да направи в станцията (простите команди остават мигновени)</span>
     </label>
     <label class="w20-field" data-role="chat-ref-row">
       <span>Клон за инсталация</span>
@@ -185,10 +202,22 @@ export function mountSettings(win, { speaker, onSaved, openWeb } = {}) {
   }
 
   function syncChat() {
-    const own = $('chat-provider').value === 'genesis'
+    const brain = $('chat-provider').value
+    const own = brain === 'genesis'
     $('chat-url-row').hidden = !own
     $('chat-auto-row').hidden = !own
-    $('chat-voice-row').hidden = !own
+    $('chat-voice-row').hidden = !(own || brain === 'claude')
+    $('claude-voice-row').hidden = brain !== 'claude'
+    $('claude-chat-row').hidden = brain !== 'claude'
+    $('claude-status').hidden = brain !== 'claude'
+  }
+
+  async function showClaude() {
+    if (!window.w20.claude) return
+    const s = await window.w20.claude.status()
+    $('claude-status').textContent = s.found
+      ? `Claude Code е намерен (${s.path}). Работи с абонамента, с който си влязъл в него — само за теб.`
+      : 'Claude Code не е намерен. Инсталирай го: npm install -g @anthropic-ai/claude-code, после пусни claude и /login.'
   }
 
   async function showGenesis() {
@@ -250,7 +279,10 @@ export function mountSettings(win, { speaker, onSaved, openWeb } = {}) {
     $('ai-model').value = state.ai.model
     $('ai-endpoint').value = state.ai.endpoint
     $('ai-fallback').checked = state.ai.fallback !== false
-    $('chat-provider').value = (state.chat && state.chat.provider) || 'genesis'
+    $('chat-provider').value = (state.chat && state.chat.provider) || 'claude'
+    $('claude-voice').value = (state.claude && state.claude.voiceModel) || 'haiku'
+    $('claude-chat').value = (state.claude && state.claude.chatModel) || 'sonnet'
+    showClaude()
     $('chat-url').value = (state.chat && state.chat.genesisUrl) || ''
     $('chat-autostart').checked = !state.chat || state.chat.autostart !== false
     $('chat-voice').checked = !state.chat || state.chat.voice !== false
@@ -315,6 +347,10 @@ export function mountSettings(win, { speaker, onSaved, openWeb } = {}) {
         voice: $('chat-voice').checked,
         genesisRef: $('chat-ref').value.trim() || 'claude/token-upgrade-ipe4yg'
       },
+      claude: {
+        voiceModel: $('claude-voice').value,
+        chatModel: $('claude-chat').value
+      },
       speech: {
         engine: $('speech-engine').value,
         voice: $('speech-voice').value,
@@ -353,5 +389,5 @@ export function mountSettings(win, { speaker, onSaved, openWeb } = {}) {
 
   load()
   win.body.appendChild(wrap)
-  return { focus: () => $('stt-provider').focus(), destroy: () => wrap.remove() }
+  return { focus: () => $('stt-provider')?.focus(), destroy: () => wrap.remove() }
 }
