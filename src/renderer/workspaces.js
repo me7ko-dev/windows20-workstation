@@ -148,13 +148,14 @@ export function createDesktop({ plane, canvas, programs, home, speaker, insets, 
   function scheduleSave() {
     clearTimeout(saveTimer)
     saveTimer = setTimeout(() => {
-      // Terminals cannot survive a restart, so they are never persisted —
-      // reopening a dead shell that looks alive is worse than an empty canvas.
+      // Terminals are kept so a crashed page can reattach to them; the main
+      // process drops every one whose program is no longer running, so after
+      // a restart a dead shell that looks alive still never comes back.
       const state = snapshot()
       for (const ws of state.workspaces) {
-        // Terminals cannot come back, and an editor window would start a
-        // server at boot that nobody asked for this time round.
-        ws.nodes = ws.nodes.filter((n) => n.type !== 'terminal' && !(n.type === 'web' && n.programId))
+        // An editor window would start a server at boot that nobody asked
+        // for this time round.
+        ws.nodes = ws.nodes.filter((n) => !(n.type === 'web' && n.programId))
       }
       window.w20.state.save(state)
     }, 400)

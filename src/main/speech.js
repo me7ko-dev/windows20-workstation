@@ -1,6 +1,9 @@
 'use strict'
 
 const { execFile } = require('child_process')
+const fs = require('fs')
+const os = require('os')
+const path = require('path')
 
 /**
  * Text to speech, for when the renderer cannot say it itself.
@@ -11,7 +14,11 @@ const { execFile } = require('child_process')
  * the second route asks Windows directly through its own WinRT synthesizer,
  * which does see it. Both are free and need no internet.
  *
- * Azure is the optional third: its neural Bulgarian voices (Kalina, Borislav)
+ * Edge is the human-sounding free one: the same neural Bulgarian voices as
+ * Azure (Kalina, Borislav), through Microsoft Edge's read-aloud service, via
+ * the edge-tts Python package. No key, but it needs the internet.
+ *
+ * Azure is the optional fourth: its neural Bulgarian voices (Kalina, Borislav)
  * sound far more human, and its free F0 tier covers a desktop's worth of
  * replies — but it needs an Azure account.
  */
@@ -109,11 +116,72 @@ async function sayAzure(text, config, key) {
   }
 }
 
+const NO_EDGE_TTS =
+  'Няма edge-tts. Инсталирай го с: python -m pip install --user edge-tts'
+
+// Python that has edge-tts. The WindowsApps python.exe is only the Store
+// alias, so the real installs are tried first. Found once, then kept.
+let edgePython = null
+
+function pythonCandidates() {
+  const local = process.env.LOCALAPPDATA || ''
+  return [
+    process.env.W20_PYTHON && [process.env.W20_PYTHON],
+    local && [path.join(local, 'Python', 'bin', 'python.exe')],
+    ['py', '-3'],
+    ['python'],
+    ['python3']
+  ].filter(Boolean)
+}
+
+function run(cmd, args, timeout) {
+  return new Promise((resolve) => {
+    execFile(cmd, args, { timeout, windowsHide: true }, (err, _out, stderr) => resolve({ err, stderr: String(stderr || '') }))
+  })
+}
+
+async function findEdgePython() {
+  if (edgePython) return edgePython
+  for (const [cmd, ...pre] of pythonCandidates()) {
+    const { err } = await run(cmd, [...pre, '-c', 'import edge_tts'], 15000)
+    if (!err) return (edgePython = [cmd, ...pre])
+  }
+  return null
+}
+
+async function sayEdge(text, config) {
+  const python = await findEdgePython()
+  if (!python) return { ok: false, error: NO_EDGE_TTS }
+  const voice = (config.azureVoice || 'bg-BG-KalinaNeural').trim()
+  const rate = Math.round(((Number(config.rate) || 1) - 1) * 100)
+  const base = path.join(os.tmpdir(), `w20-tts-${process.pid}-${Date.now()}`)
+  // The text goes through a UTF-8 file: a Cyrillic command line is not safe on Windows.
+  fs.writeFileSync(base + '.txt', text, 'utf8')
+  const [cmd, ...pre] = python
+  const { err, stderr } = await run(
+    cmd,
+    [...pre, '-m', 'edge_tts', '--voice', voice, '--file', base + '.txt', `--rate=${rate >= 0 ? '+' : ''}${rate}%`, '--write-media', base + '.mp3'],
+    60000
+  )
+  try {
+    if (err) {
+      const reason = stderr.trim().split('\n').pop() || err.message
+      return { ok: false, error: `Edge гласът не проговори: ${reason.slice(0, 200)}` }
+    }
+    return { ok: true, audio: fs.readFileSync(base + '.mp3'), mimeType: 'audio/mpeg' }
+  } catch (e) {
+    return { ok: false, error: `Edge гласът не проговори: ${e.message}` }
+  } finally {
+    for (const ext of ['.txt', '.mp3']) fs.rm(base + ext, { force: true }, () => {})
+  }
+}
+
 async function say(text, settings) {
   const state = settings.read()
   const config = state.speech
   const clean = String(text || '').trim().slice(0, 1500)
   if (!clean || config.engine === 'off') return { ok: false, error: '' }
+  if (config.engine === 'edge') return sayEdge(clean, config)
   if (config.engine === 'azure') return sayAzure(clean, config, state.keys.azure)
   return sayWindows(clean, config.rate)
 }

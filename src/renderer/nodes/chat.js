@@ -170,8 +170,8 @@ export function mountChat(win, { messages = [], onChange, speaker, sendToTermina
       if (speaker && message.content && !message.error) {
         const say = document.createElement('button')
         say.textContent = '🔊'
-        say.title = 'Прочети на глас'
-        say.addEventListener('click', () => speaker.say(message.content.replace(/```[\s\S]*?```/g, ' '), { force: true }))
+        say.title = 'Прочети на глас (натисни пак, за да спре)'
+        say.addEventListener('click', () => speaker.toggle(message.content.replace(/```[\s\S]*?```/g, ' '), { force: true }))
         foot.appendChild(say)
       }
       el.appendChild(foot)

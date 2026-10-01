@@ -99,6 +99,7 @@ export function mountSettings(win, { speaker, onSaved, openWeb } = {}) {
     <label class="w20-field">
       <span>Глас</span>
       <select data-role="speech-engine">
+        <option value="edge">Жив глас (Edge) — безплатно, без ключ, с интернет</option>
         <option value="system">Гласът на Windows — безплатно, без интернет</option>
         <option value="azure">Azure — по-жив глас, безплатен план F0</option>
         <option value="off">Без глас — само текст</option>
@@ -119,7 +120,7 @@ export function mountSettings(win, { speaker, onSaved, openWeb } = {}) {
       </label>
     </div>
     <label class="w20-field" data-role="azure-voice-row">
-      <span>Глас в Azure</span>
+      <span>Жив глас</span>
       <select data-role="azure-voice">
         <option value="bg-BG-KalinaNeural">Калина</option>
         <option value="bg-BG-BorislavNeural">Борислав</option>
@@ -142,7 +143,7 @@ export function mountSettings(win, { speaker, onSaved, openWeb } = {}) {
     <div class="w20-settings-row">
       <button class="w20-settings-save is-quiet" data-role="edit-keys">Промени клавишите…</button>
     </div>
-    <p class="w20-settings-hint">Отваря keybindings.json. Запазиш ли го, новите клавиши важат веднага. Там са и двата глобални: Ctrl+Alt+W показва станцията отвсякъде, Ctrl+Alt+Space я показва и слуша.</p>
+    <p class="w20-settings-hint">Отваря keybindings.json. Запазиш ли го, новите клавиши важат веднага. Там са и двата глобални: Ctrl+Alt+W показва станцията отвсякъде, Ctrl+Alt+G я показва и слуша.</p>
 
     <div class="w20-settings-row">
       <button class="w20-settings-save" data-role="save">Запази</button>
@@ -204,7 +205,7 @@ export function mountSettings(win, { speaker, onSaved, openWeb } = {}) {
     const engine = $('speech-engine').value
     $('speech-voice-row').hidden = engine !== 'system'
     $('azure-row').hidden = engine !== 'azure'
-    $('azure-voice-row').hidden = engine !== 'azure'
+    $('azure-voice-row').hidden = engine !== 'azure' && engine !== 'edge'
     $('azure-key').placeholder = state && state.hasKey.azure ? 'ключът е запазен' : 'ключ от Azure портала'
     $('rate-value').textContent = Number($('speech-rate').value).toFixed(1)
   }
@@ -347,7 +348,7 @@ export function mountSettings(win, { speaker, onSaved, openWeb } = {}) {
   $('save').addEventListener('click', save)
   $('try').addEventListener('click', async () => {
     await save()
-    if (speaker) speaker.say('Здравей! Аз съм гласът на работната станция. Кажи ми какво да отворя.', { force: true })
+    if (speaker) speaker.toggle('Здравей! Аз съм гласът на работната станция. Кажи ми какво да отворя.', { force: true })
   })
 
   load()

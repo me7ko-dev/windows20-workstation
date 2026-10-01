@@ -41,6 +41,8 @@ export function createCommandBar({ root, desktop, programs, canvas, toast, minim
 
   const voice = createVoice({
     onState: (state) => {
+      // Listening again means the station should hush, not talk over you.
+      if (state === 'listening' && speaker) speaker.stop()
       el.dataset.voice = state
       micBtn.title =
         state === 'listening' ? 'Слушам — натисни пак, за да спреш' : state === 'working' ? 'Разпознавам…' : 'Говори (Ctrl+Shift+Space)'

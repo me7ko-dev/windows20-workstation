@@ -18,7 +18,7 @@ const path = require('path')
 
 const GLOBAL_DEFAULTS = {
   show: 'Ctrl+Alt+W',
-  voice: 'Ctrl+Alt+Space'
+  voice: 'Ctrl+Alt+G'
 }
 
 const GLOBAL_LABELS = {

@@ -25,6 +25,20 @@ try {
 const sessions = new Map()
 const keyFor = (owner, id) => `${owner}\u0000${id}`
 
+/**
+ * The tail of what each terminal printed. A renderer that crashed and came
+ * back reattaches to the same process, and this is how its screen gets filled
+ * again instead of starting blank.
+ */
+const BACKLOG_LIMIT = 256 * 1024
+const backlogs = new Map()
+
+function remember(key, data) {
+  let text = (backlogs.get(key) || '') + data
+  if (text.length > BACKLOG_LIMIT) text = text.slice(text.length - BACKLOG_LIMIT)
+  backlogs.set(key, text)
+}
+
 function defaultShell() {
   if (process.platform !== 'win32') return process.env.SHELL || '/bin/bash'
   // PowerShell 7 if it's installed, otherwise the one that always is.
@@ -54,7 +68,8 @@ function resolveSpawn(file, args) {
 function create({ owner, id, cwd, shell, args = [], cols = 80, rows = 24, env = {} }, onData, onExit) {
   if (!pty) throw new Error(`node-pty is not built: ${ptyError}`)
   const key = keyFor(owner, id)
-  if (sessions.has(key)) return sessions.get(key)
+  // Already running: the window was reloaded, not the program restarted.
+  if (sessions.has(key)) return { proc: sessions.get(key), backlog: backlogs.get(key) || '' }
 
   const { file, args: spawnArgs } = resolveSpawn(shell || defaultShell(), args)
   const proc = pty.spawn(file, spawnArgs, {
@@ -66,14 +81,26 @@ function create({ owner, id, cwd, shell, args = [], cols = 80, rows = 24, env = 
     useConpty: process.platform === 'win32'
   })
 
-  proc.onData((data) => onData(id, data))
+  proc.onData((data) => {
+    remember(key, data)
+    onData(id, data)
+  })
   proc.onExit(({ exitCode }) => {
     sessions.delete(key)
+    backlogs.delete(key)
     onExit(id, exitCode)
   })
 
   sessions.set(key, proc)
-  return proc
+  return { proc, backlog: null }
+}
+
+/** Ids of the terminals still running in a station window. */
+function aliveIds(owner) {
+  const prefix = `${owner}\u0000`
+  return Array.from(sessions.keys())
+    .filter((key) => key.startsWith(prefix))
+    .map((key) => key.slice(prefix.length))
 }
 
 function write(owner, id, data) {
@@ -100,6 +127,7 @@ function killKey(key) {
     // already gone
   }
   sessions.delete(key)
+  backlogs.delete(key)
 }
 
 function kill(owner, id) {
@@ -125,6 +153,7 @@ module.exports = {
   kill,
   killOwner,
   killAll,
+  aliveIds,
   defaultShell,
   available: () => Boolean(pty),
   error: () => ptyError

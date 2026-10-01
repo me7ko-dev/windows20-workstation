@@ -49,7 +49,7 @@ function createSettings(userDataDir) {
     },
     // Speaking back.
     speech: {
-      engine: 'system', // system | azure | off
+      engine: 'edge', // edge | system | azure | off
       voice: '',
       rate: 1,
       azureRegion: 'westeurope',

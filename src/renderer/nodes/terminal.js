@@ -62,6 +62,9 @@ export function mountTerminal(win, { cwd, shell, args, onExit }) {
 
   const id = win.node.id
   let alive = true
+  // Output that arrives before create() answers. Held back so a reattached
+  // terminal can print its backlog first, which already contains all of it.
+  let pending = []
 
   function sync() {
     if (!fit || !alive) return
@@ -76,7 +79,14 @@ export function mountTerminal(win, { cwd, shell, args, onExit }) {
   window.w20.term
     .create({ id, cwd, shell, args, programId: win.node.programId, cols: term.cols || 80, rows: term.rows || 24 })
     .then((result) => {
+      const held = pending
+      pending = null
       if (result.ok) {
+        // A reattach (the page was reloaded under a running program): its
+        // screen comes back from the backlog, then a resize makes a
+        // full-screen program like Claude Code repaint itself.
+        if (typeof result.backlog === 'string') term.write(result.backlog)
+        else for (const data of held) term.write(data)
         win.setBadge('работи', 'live')
         sync()
         return
@@ -89,7 +99,9 @@ export function mountTerminal(win, { cwd, shell, args, onExit }) {
     })
 
   const offData = window.w20.term.onData(({ id: from, data }) => {
-    if (from === id) term.write(data)
+    if (from !== id) return
+    if (pending) pending.push(data)
+    else term.write(data)
   })
 
   const offExit = window.w20.term.onExit(({ id: from, exitCode }) => {

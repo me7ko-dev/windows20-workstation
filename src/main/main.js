@@ -36,6 +36,20 @@ function programs() {
   return programCache
 }
 
+/**
+ * Crashes go to crash.log in the user data folder: a grey window says nothing
+ * about why, and the reason (oom, crashed, killed) is what decides the fix.
+ */
+function logCrash(line) {
+  const stamp = new Date().toISOString()
+  fsp.appendFile(path.join(app.getPath('userData'), 'crash.log'), `${stamp} ${line}\n`).catch(() => {})
+}
+
+app.on('child-process-gone', (_event, details) => {
+  if (details.reason === 'clean-exit') return
+  logCrash(`${details.type} process gone — ${details.reason} (exit ${details.exitCode})`)
+})
+
 /** The station that sent an IPC message. */
 function stationOf(event) {
   return stations.get(event.sender.id) || null
@@ -126,6 +140,32 @@ function createWindow(stationId) {
   win.webContents.session.setPermissionRequestHandler((_contents, permission, callback) => {
     callback(permission === 'media' || permission === 'audioCapture')
   })
+
+  // The page died (out of memory, a GPU reset) while the window and its
+  // terminals live on. Left alone that is a grey window forever; loading the
+  // page again reattaches every terminal that is still running.
+  const recoveries = []
+  win.webContents.on('render-process-gone', (_event, details) => {
+    logCrash(`station ${id}: renderer gone — ${details.reason} (exit ${details.exitCode})`)
+    if (details.reason === 'clean-exit' || win.isDestroyed()) return
+    // Terminal output waits in the backlog until the new page asks for it.
+    const station = stations.get(contentsId)
+    if (station) station.paused = true
+    const now = Date.now()
+    while (recoveries.length && now - recoveries[0] > 60000) recoveries.shift()
+    // A page that dies again straight away would loop; after three in a
+    // minute the window stays down and the log says why.
+    if (recoveries.length >= 3) {
+      logCrash(`station ${id}: gave up after ${recoveries.length} reloads in a minute`)
+      return
+    }
+    recoveries.push(now)
+    setTimeout(() => {
+      if (!win.isDestroyed()) win.webContents.reload()
+    }, 1000)
+  })
+  win.webContents.on('unresponsive', () => logCrash(`station ${id}: renderer unresponsive`))
+  win.webContents.on('responsive', () => logCrash(`station ${id}: renderer responsive again`))
 
   win.on('closed', () => {
     stations.delete(contentsId)
@@ -447,8 +487,15 @@ ipcMain.handle('term:create', (e, opts) => {
   // Output goes back to the station that asked for it, never to whichever
   // window happens to be open.
   const send = (channel) => (id, payload) => {
-    if (!station.win.isDestroyed()) station.win.webContents.send(channel, { id, ...payload })
+    // A crashed page, or one still coming back, has no frame to send to; the
+    // backlog keeps the output until its terminals ask for it again.
+    if (station.win.isDestroyed() || station.paused) return
+    station.win.webContents.send(channel, { id, ...payload })
   }
+
+  // The page is back and listening: this create gets the backlog, and any
+  // other terminal holds live output until its own create answers.
+  station.paused = false
 
   // An agent gets the free keys from Settings in its environment, so Gemini
   // CLI, Aider or OpenCode start on the same free service the voice uses. The
@@ -458,12 +505,12 @@ ipcMain.handle('term:create', (e, opts) => {
   const { programId, env: _ignored, ...rest } = opts || {}
 
   try {
-    term.create(
+    const { backlog } = term.create(
       { ...rest, env, owner: station.id },
       (id, data) => send('term:data')(id, { data }),
       (id, exitCode) => send('term:exit')(id, { exitCode })
     )
-    return { ok: true }
+    return { ok: true, backlog }
   } catch (err) {
     return { ok: false, error: err.message }
   }
@@ -674,7 +721,18 @@ ipcMain.handle('settings:set', (_e, patch) => {
 
 ipcMain.handle('state:load', (e) => {
   const station = stationOf(e)
-  return station ? store.loadStation(station.id) : null
+  if (!station) return null
+  const state = store.loadStation(station.id)
+  // Terminals are saved so a crashed window can find them again — but only a
+  // terminal whose process is still running comes back. After a real restart
+  // none are, and a dead shell that looks alive never appears.
+  if (state && Array.isArray(state.workspaces)) {
+    const alive = new Set(term.aliveIds(station.id))
+    for (const ws of state.workspaces) {
+      if (Array.isArray(ws.nodes)) ws.nodes = ws.nodes.filter((n) => n.type !== 'terminal' || alive.has(n.id))
+    }
+  }
+  return state
 })
 
 ipcMain.handle('state:save', (e, state) => {

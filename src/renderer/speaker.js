@@ -37,7 +37,15 @@ export function createSpeaker({ toast }) {
     return (await voices()).filter((v) => /^bg/i.test(v.lang))
   }
 
+  // Every say() and stop() takes a new turn. The voice takes seconds to
+  // arrive, so an answer whose turn has passed is dropped, not played over
+  // the newer one.
+  let turn = 0
+  let pending = false
+
   function stop() {
+    turn++
+    pending = false
     if ('speechSynthesis' in window) speechSynthesis.cancel()
     if (audio) {
       audio.pause()
@@ -46,13 +54,33 @@ export function createSpeaker({ toast }) {
     }
   }
 
-  async function say(text, { force = false } = {}) {
-    const cfg = await settings()
-    if (!text || (cfg.engine === 'off' && !force)) return false
-    stop()
+  function speaking() {
+    return (
+      pending ||
+      Boolean(audio && !audio.paused && !audio.ended) ||
+      ('speechSynthesis' in window && (speechSynthesis.speaking || speechSynthesis.pending))
+    )
+  }
 
-    if (cfg.engine !== 'azure') {
+  /** The 🔊 button: the first press speaks, the next one silences. */
+  function toggle(text, options) {
+    if (speaking()) {
+      stop()
+      return Promise.resolve(false)
+    }
+    return say(text, options)
+  }
+
+  async function say(text, { force = false } = {}) {
+    stop()
+    const mine = turn
+    const cfg = await settings()
+    if (mine !== turn) return false
+    if (!text || (cfg.engine === 'off' && !force)) return false
+
+    if (cfg.engine === 'system') {
       const list = await bulgarianVoices()
+      if (mine !== turn) return false
       const voice = list.find((v) => v.name === cfg.voice) || list[0]
       if (voice) {
         const utterance = new SpeechSynthesisUtterance(text)
@@ -64,7 +92,10 @@ export function createSpeaker({ toast }) {
       }
     }
 
+    pending = true
     const result = await window.w20.speech.say(text)
+    if (mine !== turn) return false
+    pending = false
     if (!result || !result.ok) {
       const error = (result && result.error) || ''
       if (error && (force || error !== warned)) toast(error, { tone: 'warn', timeout: 12000 })
@@ -73,13 +104,15 @@ export function createSpeaker({ toast }) {
     }
     const blob = new Blob([result.audio], { type: result.mimeType })
     audio = new Audio(URL.createObjectURL(blob))
-    audio.play().catch(() => {})
+    audio.play().catch((err) => toast(`Звукът не тръгна: ${err.message}`, { tone: 'warn', timeout: 12000 }))
     return true
   }
 
   return {
     say,
     stop,
+    toggle,
+    speaking,
     bulgarianVoices,
     /** Settings changed — read them again on the next reply. */
     reload: () => {
