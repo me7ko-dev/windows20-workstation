@@ -10,10 +10,12 @@
  * is used, and remembered until the app restarts.
  */
 
+const { fetchRetry } = require('./net')
+
 const found = new Map() // `${provider}:${job}` -> model id
 
 async function listModels(baseUrl, apiKey) {
-  const response = await fetch(`${baseUrl.replace(/\/+$/, '')}/models`, {
+  const response = await fetchRetry(`${baseUrl.replace(/\/+$/, '')}/models`, {
     headers: apiKey ? { Authorization: `Bearer ${apiKey}` } : {}
   })
   if (!response.ok) return []

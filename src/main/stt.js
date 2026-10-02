@@ -2,6 +2,7 @@
 
 const { PROVIDERS } = require('./providers')
 const models = require('./models')
+const { fetchRetry, whyOffline } = require('./net')
 
 /**
  * Speech to text.
@@ -44,7 +45,7 @@ async function transcribe({ audio, mimeType }, settings) {
     form.append('file', new Blob([audio], { type: mimeType || 'audio/webm' }), 'speech.webm')
     form.append('model', model)
     if (config.language) form.append('language', config.language)
-    return fetch(endpoint, {
+    return fetchRetry(endpoint, {
       method: 'POST',
       headers: apiKey ? { Authorization: `Bearer ${apiKey}` } : {},
       body: form
@@ -69,15 +70,25 @@ async function transcribe({ audio, mimeType }, settings) {
     if (!response.ok) {
       const detail = await response.text()
       // Never echo the key back, whatever the service says.
-      return { ok: false, error: `Услугата отказа (${response.status}): ${detail.slice(0, 300)}` }
+      return { ok: false, error: refusal(config.provider, response.status), detail: detail.slice(0, 300) }
     }
 
     const data = await response.json()
     const text = (data.text || '').trim()
     return text ? { ok: true, text } : { ok: false, error: 'Нищо не беше разпознато.' }
   } catch (err) {
-    return { ok: false, error: `Няма връзка с услугата: ${err.message}` }
+    return { ok: false, error: `Разпознаването на говор не стигна до услугата: ${whyOffline(err)}.`, detail: err.message }
   }
+}
+
+/** A refusal, said so the user knows what to do about it. */
+function refusal(provider, status) {
+  const name = (PROVIDERS[provider] && PROVIDERS[provider].title.split(' —')[0]) || provider
+  if (status === 401 || status === 403) return `${name} не прие ключа за разпознаване на говор — сложи нов в Настройки.`
+  if (status === 429) return `${name}: безплатният лимит за разпознаване е изчерпан за момента — опитай след минута.`
+  if (status === 413) return 'Записът е твърде дълъг за разпознаване — кажи го на по-къси части.'
+  if (status >= 500) return `${name} има проблем в момента (код ${status}) — опитай пак след малко.`
+  return `${name} отказа да разпознае записа (код ${status}).`
 }
 
 module.exports = { transcribe, transcriptionUrl }

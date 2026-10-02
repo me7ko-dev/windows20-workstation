@@ -2,6 +2,7 @@
 
 const { PROVIDERS, FALLBACK_ORDER } = require('./providers')
 const models = require('./models')
+const { fetchRetry, whyOffline } = require('./net')
 
 /**
  * What a sentence means, when the command table does not know it.
@@ -67,7 +68,7 @@ async function ask(url, apiKey, body, timeoutMs) {
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), timeoutMs)
   try {
-    const response = await fetch(url, {
+    const response = await fetchRetry(url, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -81,7 +82,7 @@ async function ask(url, apiKey, body, timeoutMs) {
     const message = data && data.choices && data.choices[0] && data.choices[0].message
     return { status: 200, content: message && message.content ? String(message.content) : '' }
   } catch (err) {
-    return { status: 0, detail: err.name === 'AbortError' ? `не отговори за ${Math.round(timeoutMs / 1000)} секунди` : err.message }
+    return { status: 0, detail: err.name === 'AbortError' ? `не отговори за ${Math.round(timeoutMs / 1000)} секунди` : whyOffline(err) }
   } finally {
     clearTimeout(timer)
   }
@@ -307,7 +308,7 @@ async function stream(url, apiKey, body, timeoutMs, onDelta, signal) {
   }
   let text = ''
   try {
-    const response = await fetch(url, {
+    const response = await fetchRetry(url, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -361,7 +362,7 @@ async function stream(url, apiKey, body, timeoutMs, onDelta, signal) {
     if (signal && signal.aborted) return { status: 200, content: text, stopped: true }
     // Cut off half-way: what arrived is still the answer, just shorter.
     if (text) return { status: 200, content: text, cut: true }
-    return { status: 0, detail: err.name === 'AbortError' ? `не отговори за ${Math.round(timeoutMs / 1000)} секунди` : err.message }
+    return { status: 0, detail: err.name === 'AbortError' ? `не отговори за ${Math.round(timeoutMs / 1000)} секунди` : whyOffline(err) }
   } finally {
     clearTimeout(timer)
     if (signal) signal.removeEventListener('abort', abort)

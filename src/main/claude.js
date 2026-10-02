@@ -60,6 +60,10 @@ function explain(text) {
   if (/rate limit|usage limit|limit reached|5-hour|weekly/i.test(t)) {
     return 'Лимитът на абонамента за Claude е изчерпан за момента.'
   }
+  if (/overloaded|\b529\b/i.test(t)) return 'Claude е претоварен в момента — опитай след малко.'
+  if (/connection error|fetch failed|ECONN|ETIMEDOUT|ENOTFOUND|EAI_AGAIN|timed? ?out|network/i.test(t)) {
+    return 'Claude Code няма връзка с интернет (или DNS отговаря бавно) — опитай пак.'
+  }
   return `Claude Code: ${t.trim().slice(0, 300) || 'не отговори'}`
 }
 
@@ -251,6 +255,7 @@ async function command({ text, commands, context, history }, config = {}) {
     (before ? `Досега:\n${before}\n\n` : '') +
     `Команди в момента:\n${list}\n\n` +
     (context ? `Какво има на екрана: ${context}\n\n` : '') +
+    `Сега е ${new Date().toLocaleString('bg-BG', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit' })}.\n\n` +
     `Потребителят каза: „${text}“`
   const result = await run({ prompt, system: VOICE_SYSTEM, model: config.voiceModel || 'haiku', timeoutMs: 60000 })
   if (!result.ok) return result

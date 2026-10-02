@@ -48,7 +48,9 @@ contextBridge.exposeInMainWorld('w20', {
 
   voice: {
     // The key never crosses this bridge — audio goes out, text comes back.
-    transcribe: (buffer, mimeType) => ipcRenderer.invoke('voice:transcribe', { buffer, mimeType })
+    transcribe: (buffer, mimeType) => ipcRenderer.invoke('voice:transcribe', { buffer, mimeType }),
+    // Look the services up while the user is still talking.
+    warm: () => ipcRenderer.send('voice:warm')
   },
 
   ai: {

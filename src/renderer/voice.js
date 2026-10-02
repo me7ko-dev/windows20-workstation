@@ -105,6 +105,8 @@ export function createVoice({ onTranscript, onState }) {
   async function start(opts = {}) {
     if (state !== 'idle') return
     options = opts
+    // A slow DNS costs seconds; spent while the user speaks, it costs nothing.
+    if (window.w20.voice.warm) window.w20.voice.warm()
     try {
       stream = await navigator.mediaDevices.getUserMedia({
         audio: { echoCancellation: true, noiseSuppression: true }

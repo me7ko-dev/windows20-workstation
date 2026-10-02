@@ -9,7 +9,7 @@ const term = require('./pty')
 const { detect } = require('./programs')
 const { createStore } = require('./store')
 const { createSettings } = require('./settings')
-const { transcribe } = require('./stt')
+const { transcribe, transcriptionUrl } = require('./stt')
 const ai = require('./ai')
 const speech = require('./speech')
 const { catalog: providerCatalog } = require('./providers')
@@ -17,6 +17,7 @@ const { createKeybindings } = require('./keybindings')
 const genesis = require('./genesis')
 const webLookup = require('./web-lookup')
 const claude = require('./claude')
+const net = require('./net')
 
 // Renamed to AI Workstation on 01.10.2026. Settings, keys and stations stay in
 // the folder the old name made, so the new name loses nothing.
@@ -50,6 +51,34 @@ function programs() {
 function logCrash(line) {
   const stamp = new Date().toISOString()
   fsp.appendFile(path.join(app.getPath('userData'), 'crash.log'), `${stamp} ${line}\n`).catch(() => {})
+}
+
+/**
+ * What went wrong with the voice, kept: a toast is gone in nine seconds and
+ * its English detail is no use to the user, but the next look at voice.log
+ * says which step failed and what the service answered.
+ */
+function logVoice(stage, request, result) {
+  if (!result || result.ok) return
+  const file = path.join(app.getPath('userData'), 'voice.log')
+  const heard = request && request.text ? ` „${String(request.text).slice(0, 120)}“` : ''
+  const detail = result.detail ? ` | ${String(result.detail).replace(/\s+/g, ' ').slice(0, 300)}` : ''
+  const line = `${new Date().toISOString()} ${stage}${heard}: ${result.error || 'няма отговор'}${detail}\n`
+  fsp
+    .stat(file)
+    .then((st) => (st.size > 256 * 1024 ? fsp.rename(file, `${file}.old`) : null))
+    .catch(() => null)
+    .then(() => fsp.appendFile(file, line))
+    .catch(() => {})
+}
+
+/** The services a spoken command is about to need, looked up ahead of it. */
+function warmVoice() {
+  if (!settings) return
+  const state = settings.read()
+  const urls = [transcriptionUrl(state.stt.provider, state.stt.endpoint), ai.chatUrl(state.ai.provider, state.ai.endpoint)]
+  if (state.chat.provider === 'claude') urls.push('https://api.anthropic.com')
+  net.warm(urls.filter(Boolean))
 }
 
 app.on('child-process-gone', (_event, details) => {
@@ -232,6 +261,8 @@ app.whenReady().then(() => {
   keybindings = createKeybindings(app.getPath('userData'))
   applyTheme(settings.read().look.theme)
   registerGlobal()
+  // The first command after starting should not wait on a cold DNS.
+  warmVoice()
   // Genesis starts with the station, as its own process, so the chat finds it
   // already awake. Not waited for: the station does not need it to open.
   const chatConfig = settings.read().chat
@@ -579,10 +610,22 @@ ipcMain.on('term:kill', (e, { id }) => {
 
 ipcMain.handle('voice:transcribe', async (_e, { buffer, mimeType }) => {
   if (!settings) return { ok: false, error: 'Настройките още не са заредени.' }
-  return transcribe({ audio: Buffer.from(buffer), mimeType }, settings)
+  const result = await transcribe({ audio: Buffer.from(buffer), mimeType }, settings)
+  logVoice('разпознаване', null, result)
+  return result
 })
 
+// The microphone just opened: while the user speaks, the names get looked up.
+ipcMain.on('voice:warm', () => warmVoice())
+
 ipcMain.handle('ai:navigate', async (_e, request) => {
+  const result = await navigate(request)
+  logVoice('команда', request, result)
+  if (result && result.ok && result.fellBack) logVoice('команда (резервен ИИ отговори)', request, { ok: false, error: result.note })
+  return result
+})
+
+async function navigate(request) {
   if (!settings) return { ok: false, error: 'Настройките още не са заредени.' }
   // Genesis at the wheel when it is the brain and the voice is given to it;
   // the navigation service is the way back when Genesis cannot answer.
@@ -603,7 +646,7 @@ ipcMain.handle('ai:navigate', async (_e, request) => {
     return fallback.ok ? { ...fallback, fellBack: true, note: result.error } : { ok: false, error: `${result.error} · ${fallback.error}` }
   }
   return ai.navigate(request || {}, settings)
-})
+}
 
 // Search and read for the chat, whose agent has no internet of its own.
 ipcMain.handle('web:lookup', (_e, query) => webLookup.lookup(query))
