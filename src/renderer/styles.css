@@ -178,6 +178,14 @@ body.is-booting .w20-shell {
   top: 0;
   left: 0;
   transform-origin: 0 0;
+}
+
+/* Promoted only while the view moves. A permanent `will-change: transform`
+   makes Chromium rasterise the plane once and stretch that bitmap at every
+   zoom, which blurs all text inside the windows. Dropping the hint after the
+   canvas settles makes it re-rasterise crisp at the current scale. */
+.w20-viewport.is-moving .w20-plane,
+.w20-plane.is-jumping {
   will-change: transform;
 }
 

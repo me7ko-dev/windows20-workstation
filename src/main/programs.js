@@ -160,8 +160,15 @@ function onPath(command) {
   try {
     const finder = process.platform === 'win32' ? 'where.exe' : 'which'
     const out = execFileSync(finder, [command], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] })
-    const first = out.split(/\r?\n/).find((line) => line.trim())
-    return first ? first.trim() : null
+    const lines = out.split(/\r?\n/).map((line) => line.trim()).filter(Boolean)
+    if (lines.length === 0) return null
+    if (process.platform !== 'win32') return lines[0]
+    // `where.exe` lists every PATH match, including extensionless npm shims
+    // (POSIX shell scripts) that CreateProcess cannot run — pick a real
+    // Win32 executable first, a .cmd/.bat shim second, and only fall back to
+    // whatever came first if neither exists.
+    const byExt = (ext) => lines.find((line) => line.toLowerCase().endsWith(ext))
+    return byExt('.exe') || byExt('.cmd') || byExt('.bat') || lines[0]
   } catch {
     return null
   }

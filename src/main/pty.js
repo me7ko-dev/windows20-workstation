@@ -29,12 +29,28 @@ function defaultShell() {
   return process.env.W20_SHELL || 'powershell.exe'
 }
 
+/**
+ * CreateProcess (what ConPTY spawns through) only runs actual Win32
+ * executables. A `.cmd`/`.bat` shim — which is what `npm install -g`
+ * produces for `claude`, `codex`, `gemini`, etc. — is a batch script, not a
+ * PE binary, so spawning one directly fails with "not a valid Win32
+ * application" (error 193). Hand those to cmd.exe instead, the same way
+ * Node's own `child_process.spawn` does behind the scenes on Windows.
+ */
+function resolveSpawn(file, args) {
+  if (process.platform === 'win32' && /\.(cmd|bat)$/i.test(file)) {
+    return { file: process.env.ComSpec || 'cmd.exe', args: ['/d', '/s', '/c', file, ...args] }
+  }
+  return { file, args }
+}
+
 function create({ owner, id, cwd, shell, args = [], cols = 80, rows = 24 }, onData, onExit) {
   if (!pty) throw new Error(`node-pty is not built: ${ptyError}`)
   const key = keyFor(owner, id)
   if (sessions.has(key)) return sessions.get(key)
 
-  const proc = pty.spawn(shell || defaultShell(), args, {
+  const { file, args: spawnArgs } = resolveSpawn(shell || defaultShell(), args)
+  const proc = pty.spawn(file, spawnArgs, {
     name: 'xterm-color',
     cols,
     rows,

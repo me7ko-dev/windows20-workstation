@@ -98,7 +98,11 @@ export function createCanvas(viewport, plane) {
   let gridSize = 0
   function paint() {
     viewport.classList.toggle('is-far', view.zoom < DETAIL_ZOOM)
-    plane.style.transform = `translate3d(${view.x}px, ${view.y}px, 0) scale(${view.zoom})`
+    // Snapped to device pixels: a fractional offset smears text across two.
+    const dpr = window.devicePixelRatio || 1
+    const px = Math.round(view.x * dpr) / dpr
+    const py = Math.round(view.y * dpr) / dpr
+    plane.style.transform = `translate(${px}px, ${py}px) scale(${view.zoom})`
 
     if (grid) {
       const size = 32 * view.zoom
